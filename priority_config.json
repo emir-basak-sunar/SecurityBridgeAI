@@ -1,0 +1,106 @@
+{
+    "description": "SecurityBridge Öncelik Konfigürasyonu - Bu dosyayı düzenleyerek öncelikleri değiştirebilirsiniz",
+    "last_updated": "2026-02-10",
+    "updated_by": "Erkan",
+    "action_priority": {
+        "Vulnerable program execution": {
+            "level": 1,
+            "label": "KRİTİK",
+            "icon": "🔴",
+            "description": "Zafiyetli program çalıştırma - Kod güvenlik açığı"
+        },
+        "Potential login with a self-created user": {
+            "level": 2,
+            "label": "YÜKSEK",
+            "icon": "🟠",
+            "description": "Kendi oluşturulan kullanıcı ile giriş denemesi"
+        },
+        "Locked account, attempt to login": {
+            "level": 3,
+            "label": "ORTA",
+            "icon": "🟡",
+            "description": "Kilitli hesaba giriş denemesi"
+        },
+        "Repeating authorization failures": {
+            "level": 4,
+            "label": "DÜŞÜK",
+            "icon": "🟢",
+            "description": "Tekrarlayan yetkilendirme hataları"
+        },
+        "RFC usage alerts": {
+            "level": 5,
+            "label": "BİLGİ",
+            "icon": "🔵",
+            "description": "RFC kullanım uyarıları"
+        }
+    },
+    "program_priority": {
+        "ZEREV_UPDATE_EINVOICE": {
+            "level": 1,
+            "label": "KRİTİK",
+            "icon": "🔴",
+            "description": "E-Fatura güncelleme programı ",
+            "owner": ""
+        },
+        "ZHR_PYP_RAPORU": {
+            "level": 1,
+            "label": "KRİTİK",
+            "icon": "🔴",
+            "description": "HR Bordro raporu programı",
+            "owner": ""
+        },
+        "ZHR_R_UPDATE_PA001": {
+            "level": 2,
+            "label": "YÜKSEK",
+            "icon": "🟠",
+            "description": "HR Personel bilgileri güncelleme",
+            "owner": ""
+        },
+        "ZBTC_R_PYP_DAGITIM": {
+            "level": 3,
+            "label": "ORTA",
+            "icon": "🟡",
+            "description": "Batch bordro dağıtım programı",
+            "owner": ""
+        }
+    },
+    "listener_priority": {
+        "1079": {
+            "level": 1,
+            "label": "KRİTİK - Zafiyetli Program",
+            "action": "Vulnerable program execution"
+        },
+        "1021": {
+            "level": 2,
+            "label": "YÜKSEK - Self-created User",
+            "action": "Potential login with a self-created user"
+        },
+        "1017": {
+            "level": 3,
+            "label": "ORTA - Kilitli Hesap",
+            "action": "Locked account, attempt to login"
+        },
+        "1058": {
+            "level": 4,
+            "label": "DÜŞÜK - Yetki Hatası",
+            "action": "Repeating authorization failures"
+        },
+        "1055": {
+            "level": 5,
+            "label": "BİLGİ - RFC",
+            "action": "RFC usage alerts"
+        }
+    },
+    "severity_labels": {
+        "10": "Very High",
+        "9": "High",
+        "8": "Medium",
+        "5": "Low"
+    },
+    "company_codes": {
+        "1000": {
+            "name": "Ana Şirket",
+            "description": "Mevcut veri seti şirketi"
+        }
+    }
+}
