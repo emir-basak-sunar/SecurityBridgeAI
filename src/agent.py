@@ -118,6 +118,93 @@ class SAPLogAnalysisAgent:
         else:
             return self._execute_normal_query(es_query, question)
 
+    def ask_structured(self, question: str) -> Dict[str, Any]:
+        """Process question and return structured result with all intermediate data."""
+        import time as _time
+        start = _time.time()
+        
+        result = {
+            "question": question,
+            "es_query": None,
+            "es_result": None,
+            "summary": "",
+            "query_type": "normal",
+            "error": None,
+            "execution_time_ms": 0,
+        }
+
+        if not self.initialized:
+            result["error"] = "Agent başlatılmadı."
+            return result
+
+        # Step 1: Generate query
+        try:
+            schema_context = self.schema_registry.get_schema_context()
+            es_query_str = self.llm_client.generate_es_query(question, schema_context)
+            try:
+                es_query = json.loads(es_query_str)
+            except json.JSONDecodeError:
+                result["error"] = "Sorgu oluşturulamadı (JSON hatası)."
+                result["execution_time_ms"] = int((_time.time() - start) * 1000)
+                return result
+            es_query = self._sanitize_query(es_query)
+            result["es_query"] = es_query
+        except Exception as e:
+            result["error"] = f"Sorgu oluşturma hatası: {e}"
+            result["execution_time_ms"] = int((_time.time() - start) * 1000)
+            return result
+
+        # Step 2: Execute
+        if is_comparison_question(question):
+            result["query_type"] = "trend"
+            trend_result = self._execute_trend_structured(es_query, question)
+            result.update(trend_result)
+        else:
+            try:
+                es_result = self.es_client.execute_query(es_query)
+                result["es_result"] = es_result
+                if "error" in es_result:
+                    result["error"] = f"ES hatası: {str(es_result['error'])[:200]}"
+                else:
+                    formatted = format_es_result(es_result)
+                    result["summary"] = self.llm_client.summarize_result(question, formatted)
+            except Exception as e:
+                result["error"] = str(e)
+
+        result["execution_time_ms"] = int((_time.time() - start) * 1000)
+        return result
+
+    def _execute_trend_structured(self, base_query: Dict[str, Any], question: str) -> Dict[str, Any]:
+        """Trend analysis returning structured data instead of string."""
+        clean_query = self._strip_time_range(base_query)
+        current_week_query = add_time_range(clean_query, "now-7d", "now")
+        previous_week_query = add_time_range(clean_query, "now-14d", "now-7d")
+        
+        data = {"trend_data": {}}
+        try:
+            current_result = self.es_client.execute_query(current_week_query)
+            previous_result = self.es_client.execute_query(previous_week_query)
+            
+            if "error" in current_result or "error" in previous_result:
+                data["error"] = "Trend sorgusu hatası"
+                return data
+
+            data["es_result"] = {"current_week": current_result, "previous_week": previous_result}
+            data["trend_data"] = {
+                "current_week_query": current_week_query,
+                "previous_week_query": previous_week_query,
+                "current_hits": current_result.get("hits", {}).get("total", {}).get("value", 0),
+                "previous_hits": previous_result.get("hits", {}).get("total", {}).get("value", 0),
+            }
+            
+            current_fmt = format_es_result(current_result)
+            previous_fmt = format_es_result(previous_result)
+            data["summary"] = self.llm_client.compare_trend_results(question, current_fmt, previous_fmt)
+        except Exception as e:
+            data["error"] = str(e)
+        
+        return data
+
     def _execute_normal_query(self, es_query: Dict[str, Any], question: str) -> str:
         print("[2] Sorgu Çalıştırılıyor...")
         try:

@@ -1,0 +1,122 @@
+/* ========== Query Input — Clean Professional ========== */
+.query-input-wrapper {
+    flex-shrink: 0;
+}
+
+.query-input-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 6px 6px 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    transition: all 0.2s ease;
+    box-shadow: var(--shadow-sm);
+}
+
+.query-input-container:focus-within {
+    border-color: var(--accent-primary);
+    box-shadow: var(--shadow-focus);
+}
+
+.query-input-container.loading {
+    opacity: 0.6;
+}
+
+.query-input-icon {
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.query-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    resize: none;
+    line-height: 1.5;
+    min-height: 40px;
+    padding: 8px 0;
+}
+
+.query-input::placeholder {
+    color: var(--text-muted);
+}
+
+.query-submit {
+    width: 40px;
+    height: 40px;
+    border: none;
+    border-radius: var(--radius-md);
+    background: var(--accent-primary);
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+}
+
+.query-submit:hover:not(:disabled) {
+    background: #1d4ed8;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+}
+
+.query-submit:active:not(:disabled) {
+    transform: scale(0.96);
+}
+
+.query-submit:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+/* Spinner */
+.spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Loading Bar */
+.loading-bar {
+    height: 2px;
+    margin-top: 8px;
+    background: var(--bg-tertiary);
+    border-radius: 1px;
+    overflow: hidden;
+}
+
+.loading-bar-progress {
+    height: 100%;
+    width: 35%;
+    background: var(--accent-primary);
+    border-radius: 1px;
+    animation: loading-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes loading-slide {
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(350%);
+    }
+}

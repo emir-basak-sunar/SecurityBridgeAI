@@ -1,0 +1,167 @@
+/* ========== Data Explorer — Light Professional ========== */
+.data-explorer-card {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    overflow: hidden;
+}
+
+.data-explorer-card.empty {
+    opacity: 0.7;
+}
+
+.data-explorer-card .card-header {
+    flex-wrap: wrap;
+}
+
+.data-count {
+    font-size: 11px;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-weight: 500;
+    margin-left: auto;
+}
+
+/* Search Box */
+.search-box {
+    margin-left: 8px;
+}
+
+.search-box input {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    padding: 6px 12px;
+    color: var(--text-primary);
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    width: 170px;
+    outline: none;
+    transition: all 0.15s ease;
+}
+
+.search-box input:focus {
+    border-color: var(--accent-primary);
+    box-shadow: var(--shadow-focus);
+}
+
+.search-box input::placeholder {
+    color: var(--text-muted);
+}
+
+/* Table */
+.table-wrapper {
+    padding: 0 !important;
+    overflow: auto;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.data-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.data-table th {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-align: left;
+    padding: 10px 16px;
+    border-bottom: 2px solid var(--border-light);
+    white-space: nowrap;
+    user-select: none;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.data-table th.sortable {
+    cursor: pointer;
+    transition: color 0.12s ease;
+}
+
+.data-table th.sortable:hover {
+    color: var(--accent-primary);
+}
+
+.sort-arrow {
+    font-size: 10px;
+    opacity: 0.6;
+}
+
+.data-table td {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-light);
+    color: var(--text-secondary);
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.data-table tbody tr {
+    transition: background 0.08s ease;
+}
+
+.data-table tbody tr:hover {
+    background: var(--accent-primary-bg);
+}
+
+.data-table tbody tr:nth-child(even) {
+    background: #fafbfc;
+}
+
+.data-table tbody tr:nth-child(even):hover {
+    background: var(--accent-primary-bg);
+}
+
+/* Pagination */
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--border-light);
+}
+
+.pagination button {
+    padding: 6px 14px;
+    border: 1px solid var(--border-light);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.12s ease;
+}
+
+.pagination button:hover:not(:disabled) {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--border-medium);
+}
+
+.pagination button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.page-info {
+    font-size: 12px;
+    color: var(--text-muted);
+}

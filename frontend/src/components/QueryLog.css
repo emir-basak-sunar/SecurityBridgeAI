@@ -1,0 +1,120 @@
+/* ========== Query Log Card — Light Professional ========== */
+.query-log-card {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    overflow: hidden;
+}
+
+.query-log-card.empty {
+    opacity: 0.7;
+}
+
+/* Log Tabs */
+.log-tabs {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+    padding: 2px;
+}
+
+.log-tab {
+    padding: 4px 12px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.12s ease;
+}
+
+.log-tab:hover {
+    color: var(--text-secondary);
+}
+
+.log-tab.active {
+    background: var(--bg-secondary);
+    color: var(--accent-primary);
+    box-shadow: var(--shadow-sm);
+    font-weight: 600;
+}
+
+/* Copy Button */
+.copy-btn {
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--border-light);
+    background: var(--bg-secondary);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.12s ease;
+    margin-left: 6px;
+}
+
+.copy-btn:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--border-medium);
+}
+
+.copy-btn.copied {
+    background: var(--accent-green-bg);
+    border-color: var(--accent-green);
+    color: var(--accent-green);
+}
+
+/* JSON Viewer — Dark code block on white card */
+.json-viewer {
+    margin: 0;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-all;
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 16px;
+    border-radius: var(--radius-md);
+    margin: -4px;
+}
+
+.json-key {
+    color: #7dd3fc;
+}
+
+.json-string {
+    color: #86efac;
+}
+
+.json-number {
+    color: #fbbf24;
+}
+
+.json-boolean {
+    color: #c4b5fd;
+}
+
+.json-null {
+    color: #fca5a5;
+}
+
+.skeleton-loader.code {
+    padding: 4px;
+}
+
+.skeleton-loader.code .skeleton-line {
+    height: 12px;
+    margin-bottom: 6px;
+}
