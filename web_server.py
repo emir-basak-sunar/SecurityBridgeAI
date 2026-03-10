@@ -83,7 +83,6 @@ def api_schema():
     a = get_agent()
     try:
         ctx = a.schema_registry.get_schema_context()
-        # Also return raw field values for data explorer filters
         fields = {}
         for field_name, values in a.schema_registry.field_values.items():
             fields[field_name] = list(values)[:50]
@@ -91,6 +90,85 @@ def api_schema():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+@app.route("/api/dashboard", methods=["GET"])
+def api_dashboard():
+    """Return aggregated dataset statistics for the dashboard charts."""
+    a = get_agent()
+    es = a.es_client
+
+    dashboard = {
+        "total_events": 0,
+        "by_action": [],
+        "by_system": [],
+        "by_listener": [],
+        "timeline": [],
+    }
+
+    try:
+        # 1. Total count
+        count_res = es.client.count(index=es.index)
+        dashboard["total_events"] = count_res.get("count", count_res.body.get("count", 0)) if hasattr(count_res, "body") else count_res.get("count", 0)
+    except Exception:
+        try:
+            dashboard["total_events"] = count_res.body["count"]
+        except Exception:
+            pass
+
+    # 2. Events by Action (pie / bar chart)
+    try:
+        res = es.execute_query({
+            "size": 0,
+            "aggs": {"by_action": {"terms": {"field": "Action", "size": 15}}}
+        })
+        buckets = res.get("aggregations", {}).get("by_action", {}).get("buckets", [])
+        dashboard["by_action"] = [{"name": b["key"], "value": b["doc_count"]} for b in buckets]
+    except Exception:
+        pass
+
+    # 3. Events by System
+    try:
+        res = es.execute_query({
+            "size": 0,
+            "aggs": {"by_system": {"terms": {"field": "System", "size": 20}}}
+        })
+        buckets = res.get("aggregations", {}).get("by_system", {}).get("buckets", [])
+        dashboard["by_system"] = [{"name": b["key"], "value": b["doc_count"]} for b in buckets]
+    except Exception:
+        pass
+
+    # 4. Events by Listener
+    try:
+        res = es.execute_query({
+            "size": 0,
+            "aggs": {"by_listener": {"terms": {"field": "Listener", "size": 10}}}
+        })
+        buckets = res.get("aggregations", {}).get("by_listener", {}).get("buckets", [])
+        dashboard["by_listener"] = [{"name": str(b["key"]), "value": b["doc_count"]} for b in buckets]
+    except Exception:
+        pass
+
+    # 5. Daily timeline (last 30 days)
+    try:
+        res = es.execute_query({
+            "size": 0,
+            "query": {"range": {"@timestamp": {"gte": "now-30d", "lte": "now"}}},
+            "aggs": {
+                "timeline": {
+                    "date_histogram": {
+                        "field": "@timestamp",
+                        "calendar_interval": "day",
+                        "format": "yyyy-MM-dd"
+                    }
+                }
+            }
+        })
+        buckets = res.get("aggregations", {}).get("timeline", {}).get("buckets", [])
+        dashboard["timeline"] = [{"date": b["key_as_string"], "count": b["doc_count"]} for b in buckets]
+    except Exception:
+        pass
+
+    return jsonify(_safe_json(dashboard))
 
 def _safe_json(obj):
     """Make object JSON-serializable by converting non-standard types."""

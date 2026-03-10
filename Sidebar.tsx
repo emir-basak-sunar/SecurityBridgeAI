@@ -12,21 +12,7 @@ export function Sidebar({ status, history, onHistoryClick }: Props) {
         <aside className="sidebar">
             <div className="sidebar-header">
                 <div className="logo">
-                    <div className="logo-icon">
-                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="url(#grad)" strokeWidth="2">
-                            <defs>
-                                <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                                    <stop offset="0%" stopColor="#3b82f6" />
-                                    <stop offset="100%" stopColor="#8b5cf6" />
-                                </linearGradient>
-                            </defs>
-                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                        </svg>
-                    </div>
-                    <div className="logo-text">
-                        <span className="logo-title">SecurityBridge</span>
-                        <span className="logo-subtitle">AI Agent</span>
-                    </div>
+                    <img src="/logo.png" alt="AI SecurityBridge" className="logo-img" />
                 </div>
             </div>
 
@@ -73,7 +59,7 @@ export function Sidebar({ status, history, onHistoryClick }: Props) {
                                 <div className="history-question">{item.question}</div>
                                 <div className="history-meta">
                                     <span className={`history-type ${item.queryType}`}>
-                                        {item.queryType === "trend" ? "📈 Trend" : "🔍 Sorgu"}
+                                        {item.queryType === "trend" ? "Trend" : "Sorgu"}
                                     </span>
                                     <span className="history-time">{item.executionTime}ms</span>
                                 </div>
@@ -89,3 +75,4 @@ export function Sidebar({ status, history, onHistoryClick }: Props) {
         </aside>
     );
 }
+

@@ -6,6 +6,12 @@ interface Props {
     loading: boolean;
 }
 
+const EXAMPLE_QUERIES = [
+    "List users with the most RFC usage alerts between 01.02.2026 and 04.02.2026 grouped by count",
+    "Which terminals have the most RFC usage alerts?",
+    "List all locked account login attempts in the last 7 days",
+];
+
 export function QueryInput({ onSubmit, loading }: Props) {
     const [value, setValue] = useState("");
     const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -26,6 +32,12 @@ export function QueryInput({ onSubmit, loading }: Props) {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             handleSubmit();
+        }
+    };
+
+    const handleExample = (q: string) => {
+        if (!loading) {
+            onSubmit(q);
         }
     };
 
@@ -68,6 +80,17 @@ export function QueryInput({ onSubmit, loading }: Props) {
                     <div className="loading-bar-progress" />
                 </div>
             )}
+            {!loading && !value.trim() && (
+                <div className="example-queries">
+                    <span className="example-label">Try:</span>
+                    {EXAMPLE_QUERIES.map((q, i) => (
+                        <button key={i} className="example-btn" onClick={() => handleExample(q)}>
+                            {q}
+                        </button>
+                    ))}
+                </div>
+            )}
         </div>
     );
 }
+
