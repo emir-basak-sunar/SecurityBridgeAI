@@ -108,7 +108,7 @@ export function AIResponse({ response, loading }: Props) {
                 <span className="card-title">AI Analiz</span>
                 <div className="card-badges">
                     <span className={`badge ${response.query_type}`}>
-                        {response.query_type === "trend" ? "📈 Trend" : "🔍 Normal"}
+                        {response.query_type === "trend" ? "Trend" : "Normal"}
                     </span>
                     <span className="badge time">{response.execution_time_ms}ms</span>
                 </div>
@@ -116,7 +116,7 @@ export function AIResponse({ response, loading }: Props) {
             <div className="card-body">
                 {response.error ? (
                     <div className="error-message">
-                        <span className="error-icon">⚠️</span>
+                        <span className="error-icon">!</span>
                         <span>{response.error}</span>
                     </div>
                 ) : (

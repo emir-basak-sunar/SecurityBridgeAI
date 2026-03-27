@@ -26,11 +26,27 @@ COMPARISON_KEYWORDS = [
 
 def format_es_result(result: Dict[str, Any]) -> str:
     """Format Elasticsearch result for LLM consumption with size limit."""
+    # Add a clear data-presence header so the LLM never misses it
+    total_hits = result.get("hits", {}).get("total", {})
+    if isinstance(total_hits, dict):
+        hit_count = total_hits.get("value", 0)
+    else:
+        hit_count = total_hits or 0
+
+    aggs = result.get("aggregations", {})
+    bucket_count = 0
+    for agg_name, agg_data in aggs.items():
+        if isinstance(agg_data, dict):
+            buckets = agg_data.get("buckets", [])
+            bucket_count += len(buckets)
+
+    header = f"[DATA SUMMARY: {hit_count} total hits, {bucket_count} aggregation buckets]\n"
+
     result_str = json.dumps(result, ensure_ascii=False, indent=2)
     MAX_CHARS = 4000
     if len(result_str) > MAX_CHARS:
-        result_str = result_str[:MAX_CHARS] + "\n... (sonuç kısaltıldı)"
-    return result_str
+        result_str = result_str[:MAX_CHARS] + "\n... (truncated)"
+    return header + result_str
 
 
 def is_comparison_question(question: str) -> bool:

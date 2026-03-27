@@ -107,7 +107,7 @@ export function DataExplorer({ response }: Props) {
         return (
             <div className="data-explorer-card empty">
                 <div className="card-header">
-                    <span className="card-icon">📊</span>
+                    <span className="card-icon">—</span>
                     <span className="card-title">Veri Gezgini</span>
                 </div>
                 <div className="card-body">
@@ -123,7 +123,7 @@ export function DataExplorer({ response }: Props) {
         return (
             <div className="data-explorer-card">
                 <div className="card-header">
-                    <span className="card-icon">📊</span>
+                    <span className="card-icon">—</span>
                     <span className="card-title">Veri Gezgini</span>
                 </div>
                 <div className="card-body">
@@ -138,7 +138,7 @@ export function DataExplorer({ response }: Props) {
     return (
         <div className="data-explorer-card">
             <div className="card-header">
-                <span className="card-icon">📊</span>
+                <span className="card-icon">—</span>
                 <span className="card-title">Veri Gezgini</span>
                 <span className="data-count">{filtered.length} kayıt</span>
                 <div className="search-box">

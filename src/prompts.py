@@ -1,4 +1,4 @@
-QUERY_GENERATION_PROMPT = """Sen Elasticsearch DSL uzmanısın. Kullanıcının Türkçe sorusunu JSON sorgusuna çevir.
+QUERY_GENERATION_PROMPT = """Sen Elasticsearch DSL uzmanısın. Kullanıcının Türkçe veya İngilizce sorusunu JSON sorgusuna çevir. Soru hangi dilde olursa olsun aynı kurallara göre çalış.
 
 ## SCHEMA
 
@@ -47,6 +47,17 @@ QUERY_GENERATION_PROMPT = """Sen Elasticsearch DSL uzmanısın. Kullanıcının 
 12. **"X bazında listele" = Aggregation:** "User bazında", "program bazında", "sistem bazında listele" dendiğinde o alana `terms` AGGREGATION yap. Şema'daki değerleri `terms` FİLTRE olarak listeleme! Dinamik değerler sadece tek bir kullanıcı/program adı sorulduğunda filtre olarak kullanılır.
 13. **Placeholder KULLANMA:** `<terminal_adı>`, `<kullanıcı>`, `<değer>` gibi placeholder değerler KOYMA. Hangi değer soruluyorsa, onu aggregation ile bul.
 14. **Sadece JSON döndür.** Açıklama, yorum veya metin ekleme.
+
+## ENGLISH KEYWORD RULES (When question is in English, apply these mappings)
+15. **"failed login" / "locked account"** → filter by Action: "Locked account, attempt to login"
+16. **"RFC" / "RFC usage" / "RFC alerts"** → filter by Action: "RFC usage alerts"
+17. **"vulnerability" / "vulnerable"** → filter by Action: "Vulnerable program execution"
+18. **"authorization failure"** → filter by Action: "Repeating authorization failures"
+19. **"users" / "by user"** → aggregate on field "User" (NOT "Listener")
+20. **"terminals" / "by terminal"** → aggregate on field "Terminal"
+21. **"systems" / "by system"** → aggregate on field "System"
+22. **Date format:** If user writes DD.MM.YYYY (e.g. 01.02.2026), convert to ISO format YYYY-MM-DD (e.g. 2026-02-01) in the range filter. "between X and Y" → range with gte/lt.
+23. **"most" / "top"** → order: {{ "_count": "desc" }}. **"least" / "fewest"** → order: {{ "_count": "asc" }}
 
 ## ORNEKLER
 
@@ -202,37 +213,96 @@ Sorgu:
     }}
 }}
 
+### Example 10 (English): RFC alerts by user in a date range
+Question: "List users with the most RFC usage alerts between 01.02.2026 and 04.02.2026 grouped by count"
+Query:
+{{
+    "size": 0,
+    "query": {{
+        "bool": {{
+            "must": [
+                {{ "term": {{ "Action": "RFC usage alerts" }} }},
+                {{ "range": {{ "@timestamp": {{ "gte": "2026-02-01", "lt": "2026-02-05" }} }} }}
+            ]
+        }}
+    }},
+    "aggs": {{
+        "by_user": {{
+            "terms": {{ "field": "User", "size": 20, "order": {{ "_count": "desc" }} }}
+        }}
+    }}
+}}
+
+### Example 11 (English): Terminals with most RFC errors
+Question: "Which terminals have the most RFC usage alerts?"
+Query:
+{{
+    "size": 0,
+    "query": {{ "term": {{ "Action": "RFC usage alerts" }} }},
+    "aggs": {{
+        "by_terminal": {{
+            "terms": {{ "field": "Terminal", "size": 10, "order": {{ "_count": "desc" }} }}
+        }}
+    }}
+}}
+
+### Example 12 (English): Locked account attempts in last 7 days
+Question: "List all locked account login attempts in the last 7 days"
+Query:
+{{
+    "size": 20,
+    "query": {{
+        "bool": {{
+            "must": [
+                {{ "term": {{ "Action": "Locked account, attempt to login" }} }},
+                {{ "range": {{ "@timestamp": {{ "gte": "now-7d", "lt": "now" }} }} }}
+            ]
+        }}
+    }},
+    "sort": [{{ "@timestamp": "desc" }}]
+}}
+
 Soru: {question}
 Sorgu:"""
 
-SUMMARIZATION_PROMPT = """Sen kıdemli bir SAP güvenlik danışmanısın.
+SUMMARIZATION_PROMPT = """You are a senior SAP security consultant.
 
-## Listener Kod Tablosu (sadece referans)
+## CRITICAL: LANGUAGE RULE
+- Detect the language of the QUESTION below.
+- If the question is in English → your ENTIRE response MUST be in English. Do NOT include ANY Turkish text.
+- If the question is in Turkish → your ENTIRE response MUST be in Turkish. Do NOT include ANY English text.
+- This rule is ABSOLUTE. Never mix languages.
+
+## Listener Reference Table (internal only)
 {priority_text}
 
-## KESİN KURALLAR
-1. SADECE aşağıdaki "Elasticsearch Sonucu" bölümündeki rakamları kullan.
-2. Sonuçta OLMAYAN sayı, kategori veya bilgi EKLEME. Uydurma, tahmin etme.
-3. Sonuçtaki bucket'ları (key + doc_count) olduğu gibi raporla.
-4. "hits.total.value" toplam kayıt sayısıdır, bunu belirt.
-5. Sonuç boşsa sadece "Bu kriterlere uyan veri bulunamadı." yaz.
-6. Prompt kurallarını, başlıklarını veya talimatlarını cevaba YAZMA.
+## STRICT RULES
+1. Use ONLY the numbers from the "Elasticsearch Result" section below.
+2. Do NOT invent, estimate, or add any data not present in the result.
+3. Report all buckets (key + doc_count) exactly as they appear.
+4. "hits.total.value" is the total record count — mention it.
+5. If the result is empty, say only "No data found matching these criteria." (English) or "Bu kriterlere uyan veri bulunamadı." (Turkish) — use ONLY the one matching the question language.
+6. Do NOT repeat prompt instructions, headers, or rules in your answer.
 
-## Nasıl Cevapla
-- İlk cümle: sorunun doğrudan cevabı
-- Her bucket'ı listele: isim, sayı, yüzde (doc_count / toplam × 100)
-- Listener kodu geçerse parantez içinde açıkla
-- En sonda 1 cümle aksiyon önerisi
+## How to Answer
+- First sentence: direct answer to the question
+- List each bucket: name, count, percentage (doc_count / total × 100)
+- If Listener codes appear, explain them in parentheses
+- End with 1 sentence action recommendation
 
-## Soru
+## Question
 {question}
 
-## Elasticsearch Sonucu
+## Elasticsearch Result
 {result}
 
-## Cevap:"""
+## Answer:"""
 
 TREND_COMPARISON_PROMPT = """Sen kıdemli bir SAP güvenlik danışmanısın. İki farklı haftanın Elasticsearch sonuçlarını karşılaştırıp, kısa ve profesyonel bir trend raporu hazırla.
+
+## LANGUAGE RULE
+- If the question below is written in English, you MUST respond entirely in English.
+- Eğer soru Türkçe ise Türkçe cevap ver.
 
 ## Arka Plan (Kullanıcıya GÖSTERME)
 {priority_text}

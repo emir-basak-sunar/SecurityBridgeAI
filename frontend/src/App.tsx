@@ -5,6 +5,7 @@ import { QueryInput } from "./components/QueryInput";
 import { AIResponse } from "./components/AIResponse";
 import { QueryLog } from "./components/QueryLog";
 import { DataExplorer } from "./components/DataExplorer";
+import { Dashboard } from "./components/Dashboard";
 import { askAgent, getStatus } from "./api/agent";
 import type { AgentResponse, StatusResponse, QueryHistoryItem } from "./types";
 
@@ -13,7 +14,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<StatusResponse>({ elasticsearch: false, ollama: false, agent_initialized: false });
   const [history, setHistory] = useState<QueryHistoryItem[]>([]);
-  const [activePanel, setActivePanel] = useState<"response" | "data">("response");
+  const [activePanel, setActivePanel] = useState<"response" | "data" | "dashboard">("dashboard");
   const mainRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -83,7 +84,13 @@ function App() {
             className={`panel-tab ${activePanel === "data" ? "active" : ""}`}
             onClick={() => setActivePanel("data")}
           >
-            <span className="tab-icon">📊</span> Veri Gezgini
+            <span className="tab-icon"></span> Veri Gezgini
+          </button>
+          <button
+            className={`panel-tab ${activePanel === "dashboard" ? "active" : ""}`}
+            onClick={() => setActivePanel("dashboard")}
+          >
+            <span className="tab-icon"></span> Dashboard
           </button>
         </div>
 
@@ -93,8 +100,10 @@ function App() {
               <AIResponse response={response} loading={loading} />
               <QueryLog response={response} loading={loading} />
             </div>
-          ) : (
+          ) : activePanel === "data" ? (
             <DataExplorer response={response} />
+          ) : (
+            <Dashboard />
           )}
         </div>
       </main>

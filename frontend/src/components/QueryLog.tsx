@@ -48,7 +48,7 @@ export function QueryLog({ response, loading }: Props) {
         return (
             <div className="query-log-card">
                 <div className="card-header">
-                    <span className="card-icon">📋</span>
+                    <span className="card-icon">ES</span>
                     <span className="card-title">ES Sorgu Log</span>
                 </div>
                 <div className="card-body">
@@ -68,7 +68,7 @@ export function QueryLog({ response, loading }: Props) {
         return (
             <div className="query-log-card empty">
                 <div className="card-header">
-                    <span className="card-icon">📋</span>
+                    <span className="card-icon">ES</span>
                     <span className="card-title">ES Sorgu Log</span>
                 </div>
                 <div className="card-body">
@@ -83,7 +83,7 @@ export function QueryLog({ response, loading }: Props) {
     return (
         <div className="query-log-card">
             <div className="card-header">
-                <span className="card-icon">📋</span>
+                <span className="card-icon">ES</span>
                 <span className="card-title">ES Sorgu Log</span>
                 <div className="log-tabs">
                     <button
@@ -104,7 +104,7 @@ export function QueryLog({ response, loading }: Props) {
                     onClick={() => copyToClipboard(jsonStr)}
                     title="Kopyala"
                 >
-                    {copied ? "✓" : "📋"}
+                    {copied ? "✓" : "⎘"}
                 </button>
             </div>
             <div className="card-body">
