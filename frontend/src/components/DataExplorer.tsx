@@ -17,52 +17,29 @@ export function DataExplorer({ response }: Props) {
     const [page, setPage] = useState(0);
     const pageSize = 15;
 
-    // Extract tabular data from ES result
+    // Extract tabular data from SQL result
     const { columns, rows } = useMemo(() => {
-        if (!response?.es_result) return { columns: [] as string[], rows: [] as DataRow[] };
+        if (!response?.sql_result) return { columns: [] as string[], rows: [] as DataRow[] };
 
-        const result = response.es_result as Record<string, unknown>;
+        const result = response.sql_result as Record<string, unknown>;
 
-        // Try aggregations first
-        const aggs = result.aggregations || result.aggs;
-        if (aggs && typeof aggs === "object") {
-            const aggData = aggs as Record<string, unknown>;
-            const aggRows: DataRow[] = [];
+        // SQL results come as { columns: [...], rows: [...], row_count: N }
+        const sqlRows = result.rows as DataRow[] | undefined;
+        const sqlColumns = result.columns as string[] | undefined;
 
-            for (const [aggName, aggValue] of Object.entries(aggData)) {
-                const agg = aggValue as Record<string, unknown>;
-                if (agg?.buckets && Array.isArray(agg.buckets)) {
-                    for (const bucket of agg.buckets) {
-                        const row: DataRow = {
-                            [aggName]: bucket.key as string,
-                            count: bucket.doc_count as number,
-                        };
-                        // Check for nested aggregations
-                        for (const [subKey, subVal] of Object.entries(bucket)) {
-                            const sub = subVal as Record<string, unknown>;
-                            if (sub?.buckets && Array.isArray(sub.buckets)) {
-                                row[subKey] = (sub.buckets as Array<{ key: string }>).map((b) => b.key).join(", ");
-                            }
-                        }
-                        aggRows.push(row);
-                    }
-                }
-            }
-            if (aggRows.length > 0) {
-                return { columns: Object.keys(aggRows[0]), rows: aggRows };
-            }
+        if (sqlRows && Array.isArray(sqlRows) && sqlRows.length > 0) {
+            const cols = sqlColumns && Array.isArray(sqlColumns)
+                ? sqlColumns
+                : Object.keys(sqlRows[0]);
+            return { columns: cols, rows: sqlRows };
         }
 
-        // Fall back to hits
-        const hits = result.hits as Record<string, unknown> | undefined;
-        const hitsList = (hits?.hits as Array<Record<string, unknown>>) || [];
-        if (hitsList.length > 0) {
-            const hitsRows: DataRow[] = hitsList.map((h) => {
-                const src = (h._source || {}) as Record<string, string | number>;
-                return { ...src };
-            });
-            const cols = Object.keys(hitsRows[0] || {});
-            return { columns: cols, rows: hitsRows };
+        // Try trend data (current_week / previous_week)
+        const currentWeek = result.current_week as Record<string, unknown> | undefined;
+        if (currentWeek?.rows && Array.isArray(currentWeek.rows) && (currentWeek.rows as DataRow[]).length > 0) {
+            const cwRows = currentWeek.rows as DataRow[];
+            const cols = (currentWeek.columns as string[]) || Object.keys(cwRows[0]);
+            return { columns: cols, rows: cwRows };
         }
 
         return { columns: [] as string[], rows: [] as DataRow[] };

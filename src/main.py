@@ -16,7 +16,7 @@ def main():
         print("Başlatılamadı.")
         return
 
-    print("\n✅ Sistem Hazır. Çıkmak için 'q' veya 'exit' yazın.")
+    print("\n[OK] Sistem Hazir. Cikmak icin 'q' veya 'exit' yazin.")
     print("   Özel komutlar: 'özet', 'reload'")
     
     while True:

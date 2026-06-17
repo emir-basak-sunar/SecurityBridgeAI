@@ -1,12 +1,12 @@
 import type { AgentResponse, StatusResponse } from "../types";
 
-const API_BASE = "http://localhost:5000";
+const API_BASE = "http://localhost:8000";
 
-export async function askAgent(question: string): Promise<AgentResponse> {
+export async function askAgent(question: string, provider: string = "ollama"): Promise<AgentResponse> {
     const res = await fetch(`${API_BASE}/api/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, provider }),
     });
     if (!res.ok) throw new Error(`API error: ${res.status}`);
     return res.json();

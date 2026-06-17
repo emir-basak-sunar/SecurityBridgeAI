@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import "./QueryInput.css";
 
 interface Props {
-    onSubmit: (question: string) => void;
+    onSubmit: (question: string, provider: string) => void;
     loading: boolean;
 }
 
@@ -14,6 +14,7 @@ const EXAMPLE_QUERIES = [
 
 export function QueryInput({ onSubmit, loading }: Props) {
     const [value, setValue] = useState("");
+    const [provider, setProvider] = useState("ollama");
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
     useEffect(() => {
@@ -23,7 +24,7 @@ export function QueryInput({ onSubmit, loading }: Props) {
     const handleSubmit = () => {
         const q = value.trim();
         if (q && !loading) {
-            onSubmit(q);
+            onSubmit(q, provider);
             setValue("");
         }
     };
@@ -37,7 +38,7 @@ export function QueryInput({ onSubmit, loading }: Props) {
 
     const handleExample = (q: string) => {
         if (!loading) {
-            onSubmit(q);
+            onSubmit(q, provider);
         }
     };
 
@@ -50,6 +51,15 @@ export function QueryInput({ onSubmit, loading }: Props) {
                         <path d="m21 21-4.3-4.3" />
                     </svg>
                 </div>
+                <select 
+                    className="provider-select" 
+                    value={provider} 
+                    onChange={(e) => setProvider(e.target.value)}
+                    disabled={loading}
+                >
+                    <option value="ollama">Ollama (Llama 3.1 8B)</option>
+                    <option value="groq">Groq (Qwen 32B)</option>
+                </select>
                 <textarea
                     ref={inputRef}
                     className="query-input"

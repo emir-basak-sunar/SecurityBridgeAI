@@ -110,6 +110,20 @@
     color: #fca5a5;
 }
 
+/* SQL Syntax Highlighting */
+.sql-keyword {
+    color: #7dd3fc;
+    font-weight: 600;
+}
+
+.sql-string {
+    color: #86efac;
+}
+
+.sql-number {
+    color: #fbbf24;
+}
+
 .skeleton-loader.code {
     padding: 4px;
 }

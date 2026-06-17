@@ -43,7 +43,7 @@ export function Dashboard() {
         setLoading(true);
         setError(null);
         try {
-            const res = await fetch("http://localhost:5000/api/dashboard");
+            const res = await fetch("http://localhost:8000/api/dashboard");
             if (!res.ok) throw new Error(`API error: ${res.status}`);
             const json = await res.json();
             setData(json);
@@ -180,10 +180,11 @@ export function Dashboard() {
                                     data={topActions} dataKey="value" nameKey="name"
                                     cx="50%" cy="50%" outerRadius={90} innerRadius={45}
                                     paddingAngle={2} strokeWidth={0}
-                                    label={({ name, percent }: { name: string; percent: number }) =>
-                                        `${name.slice(0, 15)}${name.length > 15 ? "…" : ""} ${(percent * 100).toFixed(0)}%`
-                                    }
-                                    labelLine={{ stroke: "#94a3b8" }}
+                                    label={((props: { name?: string; percent?: number }) => {
+                                        const n = props.name ?? "";
+                                        const p = props.percent ?? 0;
+                                        return `${n.slice(0, 15)}${n.length > 15 ? "…" : ""} ${(p * 100).toFixed(0)}%`;
+                                    }) as unknown as boolean}
                                 >
                                     {topActions.map((_entry, index) => (
                                         <Cell key={`pie-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />

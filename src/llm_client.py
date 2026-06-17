@@ -1,36 +1,64 @@
+import re
 import requests
 from langchain_ollama import OllamaLLM
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from src.app_config import OLLAMA_MODEL, OLLAMA_BASE_URL, PRIORITY_CONFIG_FILE, load_priority_config, get_priority_text
-from src.prompts import QUERY_GENERATION_PROMPT, SUMMARIZATION_PROMPT, TREND_COMPARISON_PROMPT
+from src.app_config import OLLAMA_MODEL, OLLAMA_BASE_URL, GROQ_API_KEY, GROQ_MODEL, LLM_PROVIDER, PRIORITY_CONFIG_FILE, load_priority_config, get_priority_text
+from src.prompts import QUERY_GENERATION_PROMPT, GROQ_QUERY_GENERATION_PROMPT, SUMMARIZATION_PROMPT, TREND_COMPARISON_PROMPT
+
+class GroqLLM:
+    """Simple wrapper for Groq API using requests."""
+    def __init__(self, api_key: str, model: str):
+        self.api_key = api_key
+        self.model = model
+        self.url = "https://api.groq.com/openai/v1/chat/completions"
+
+    def invoke(self, prompt: str) -> str:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1
+        }
+        resp = requests.post(self.url, headers=headers, json=data, timeout=30)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Groq API Error: {resp.text}")
+        return resp.json()["choices"][0]["message"]["content"]
 
 class LLMClient:
-    """Wrapper for Ollama LLM operations with retry mechanism."""
+    """Wrapper for LLM operations with retry mechanism."""
     
-    def __init__(self, model: str = OLLAMA_MODEL, base_url: str = OLLAMA_BASE_URL):
-        self.model = model
-        self.base_url = base_url
+    def __init__(self, provider: str = LLM_PROVIDER):
+        self.provider = provider
+        self.model = OLLAMA_MODEL if provider == "ollama" else GROQ_MODEL
+        self.base_url = OLLAMA_BASE_URL
         self.llm = None
         self.priority_config = load_priority_config()
         
     def initialize(self) -> bool:
-        """Initialize the Ollama LLM."""
+        """Initialize the selected LLM."""
         try:
-            self.llm = OllamaLLM(
-                model=self.model,
-                base_url=self.base_url,
-                temperature=0.1,
-                num_predict=1024
-            )
-            # Test connection
-            test_response = self.llm.invoke("Merhaba, hazır mısın?")
-            print(f"✅ Ollama LLM hazır ({self.model})")
-            return True
+            if self.provider == "groq":
+                self.llm = GroqLLM(api_key=GROQ_API_KEY, model=GROQ_MODEL)
+                # Test connection implicitly if needed, or assume it works
+                print(f"[OK] Groq LLM hazir ({self.model})")
+                return True
+            else:
+                self.llm = OllamaLLM(
+                    model=self.model,
+                    base_url=self.base_url,
+                    temperature=0.1,
+                    num_predict=1024
+                )
+                # Test connection
+                self.llm.invoke("Merhaba, hazır mısın?")
+                print(f"[OK] Ollama LLM hazir ({self.model})")
+                return True
         except Exception as e:
-            print(f"❌ Ollama bağlantı hatası: {e}")
-            print(f"   Ollama'nın çalıştığından emin olun: ollama serve")
-            print(f"   Model yüklü mü kontrol edin: ollama pull {self.model}")
+            print(f"[HATA] LLM baglanti hatasi ({self.provider}): {e}")
             return False
             
     @retry(
@@ -38,71 +66,64 @@ class LLMClient:
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type((requests.exceptions.ConnectionError, TimeoutError))
     )
-    def generate_es_query(self, question: str, schema_context: str = "") -> str:
-        """Generate Elasticsearch query from natural language question with retry."""
+    def generate_sql_query(self, question: str, schema_context: str = "") -> str:
+        """Generate SQL query from natural language question with retry."""
         if not self.llm:
             raise RuntimeError("LLM başlatılmamış")
         
-        # Schema context yoksa varsayılan metni kullan
         if not schema_context:
             schema_context = "Veri şeması yüklenemedi."
             
-        prompt = QUERY_GENERATION_PROMPT.format(question=question, schema_context=schema_context)
+        from datetime import datetime
+        today_str = datetime.now().strftime("%Y%m%d")
+        schema_context += f"\n\nBUGÜNÜN TARİHİ: {today_str} (Zaman hesaplamalarını bu tarihe göre yap)"
+            
+        if self.provider == "groq":
+            prompt = GROQ_QUERY_GENERATION_PROMPT.format(
+                schema_context=schema_context,
+                question=question
+            )
+        else:
+            prompt = QUERY_GENERATION_PROMPT.format(
+                schema_context=schema_context,
+                question=question
+            )
+            
         response = self.llm.invoke(prompt)
         
-        # Clean response to get only JSON
-        return self._extract_json(response)
+        # Clean response to get only SQL
+        return self._extract_sql(response)
 
-    def _extract_json(self, text: str) -> str:
-        """Extract the first complete JSON object from text."""
+    def _extract_sql(self, text: str) -> str:
+        """Extract SQL query from LLM response text."""
         text = text.strip()
         
         # Remove markdown code blocks
         if "```" in text:
-            import re
-            match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+            match = re.search(r"```(?:sql)?\s*(.*?)\s*```", text, re.DOTALL)
             if match:
-                return match.group(1)
-                
-        # Find the first complete JSON object by tracking brace depth
-        start = text.find("{")
-        if start == -1:
-            return text
-            
-        depth = 0
-        in_string = False
-        escape_next = False
+                return match.group(1).strip()
         
-        for i in range(start, len(text)):
-            char = text[i]
-            
-            if escape_next:
-                escape_next = False
-                continue
-                
-            if char == '\\' and in_string:
-                escape_next = True
-                continue
-                
-            if char == '"' and not escape_next:
-                in_string = not in_string
-                continue
-                
-            if in_string:
-                continue
-                
-            if char == '{':
-                depth += 1
-            elif char == '}':
-                depth -= 1
-                if depth == 0:
-                    return text[start:i+1]
-            
-        # Fallback: return from first { to last }
-        end = text.rfind("}")
-        if end != -1:
-            return text[start:end+1]
-            
+        # Find SELECT statement
+        select_match = re.search(r"(SELECT\s+.*?;)", text, re.DOTALL | re.IGNORECASE)
+        if select_match:
+            return select_match.group(1).strip()
+        
+        # If text starts with SELECT
+        if text.upper().startswith("SELECT"):
+            # Add semicolon if missing
+            if not text.rstrip().endswith(";"):
+                text = text.rstrip() + ";"
+            return text.strip()
+        
+        # Fallback: find any line starting with SELECT
+        for line in text.split("\n"):
+            line = line.strip()
+            if line.upper().startswith("SELECT"):
+                if not line.endswith(";"):
+                    line += ";"
+                return line
+        
         return text
     
     @retry(
@@ -111,11 +132,10 @@ class LLMClient:
         retry=retry_if_exception_type((requests.exceptions.ConnectionError, TimeoutError))
     )
     def summarize_result(self, question: str, result: str) -> str:
-        """Summarize Elasticsearch result in Turkish with retry."""
+        """Summarize SQL result with retry."""
         if not self.llm:
             raise RuntimeError("LLM başlatılmamış")
         
-        # Öncelik metnini config'den dinamik olarak oluştur
         priority_text = get_priority_text(self.priority_config)
         prompt = SUMMARIZATION_PROMPT.format(
             question=question,
@@ -151,7 +171,6 @@ class LLMClient:
         cleaned = []
         seen = set()
         
-        # Temizlenecek meta-yorum ifadeleri
         meta_phrases = [
             "ozet:", "özet:", "sonuç:", "sonuc:", "cevap:", 
             "işte özet:", "rapor:", "analiz:", "ancak,",
@@ -167,7 +186,6 @@ class LLMClient:
                 cleaned.append(line)
                 continue
             
-            # Meta yorumları atla
             is_meta = False
             line_lower = line_strip.lower().replace("**", "").strip()
             for phrase in meta_phrases:
@@ -177,10 +195,7 @@ class LLMClient:
             if is_meta:
                 continue
                 
-            # Tekrar kontrolü (sayılar hariç)
-            # Eğer satır bir liste elemanıysa daha sıkı kontrol yap
             if line_strip.startswith('-') or line_strip.startswith('*') or line_strip.startswith('•'):
-                # Liste elemanının içeriğini al
                 content = line_strip[1:].strip()
                 if content in seen:
                     continue
@@ -192,7 +207,6 @@ class LLMClient:
                 
             cleaned.append(line)
         
-        # Sondaki boş satırları temizle
         while cleaned and cleaned[-1].strip() == "":
             cleaned.pop()
         

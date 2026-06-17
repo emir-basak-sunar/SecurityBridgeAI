@@ -20,10 +20,10 @@ export function Sidebar({ status, history, onHistoryClick }: Props) {
                 <h3 className="sidebar-section-title">Sistem Durumu</h3>
                 <div className="status-items">
                     <div className="status-item">
-                        <span className={`status-dot ${status.elasticsearch ? "online" : "offline"}`} />
-                        <span className="status-label">Elasticsearch</span>
-                        <span className={`status-badge ${status.elasticsearch ? "online" : "offline"}`}>
-                            {status.elasticsearch ? "Online" : "Offline"}
+                        <span className={`status-dot ${status.postgresql ? "online" : "offline"}`} />
+                        <span className="status-label">PostgreSQL</span>
+                        <span className={`status-badge ${status.postgresql ? "online" : "offline"}`}>
+                            {status.postgresql ? "Online" : "Offline"}
                         </span>
                     </div>
                     <div className="status-item">
@@ -70,9 +70,8 @@ export function Sidebar({ status, history, onHistoryClick }: Props) {
             </div>
 
             <div className="sidebar-footer">
-                <span className="footer-text">SecurityBridgeAI v2.0</span>
+                <span className="footer-text">SecurityBridgeAI v3.0 — SQL</span>
             </div>
         </aside>
     );
 }
-

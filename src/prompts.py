@@ -1,308 +1,192 @@
-QUERY_GENERATION_PROMPT = """Sen Elasticsearch DSL uzmanısın. Kullanıcının Türkçe veya İngilizce sorusunu JSON sorgusuna çevir. Soru hangi dilde olursa olsun aynı kurallara göre çalış.
+QUERY_GENERATION_PROMPT = """Sen SQL uzmanısın. Kullanıcının Türkçe veya İngilizce sorusunu SAP REST API sorgusuna çevir. Soru hangi dilde olursa olsun aynı kurallara göre çalış.
 
-## SCHEMA
+## TABLO: "/ABEX/SEFWE"
 
-### ALAN İLİŞKİLERİ (ÖNEMLİ)
-- **Listener** ve **Action** birbiriyle bağlantılıdır. Listener sayısal KOD, Action ise o kodun METİN açıklamasıdır:
-  - Listener 1079 = Action "Vulnerable program execution" (Kritik - Zafiyet)
-  - Listener 1021 = Action "Potential login with a self-created user" (Yüksek)
-  - Listener 1017 = Action "Locked account, attempt to login" (Orta)
-  - Listener 1058 = Action "Repeating authorization failures" (Düşük)
-  - Listener 1055 = Action "RFC usage alerts" (Bilgi)
-- Listener ve Action ENUM gibidir (sabit değerler). Her System için aynı içeriktedir.
+### KOLON İLİŞKİLERİ (ÖNEMLİ)
+- **EVTOBJ** (listener) ve **EVTACT** (action) birbiriyle bağlantılıdır. EVTOBJ sayısal KOD, EVTACT ise o kodun METİN açıklamasıdır:
+  - EVTOBJ '1079' = EVTACT 'Vulnerable program execution' (Kritik - Zafiyet)
+  - EVTOBJ '1021' = EVTACT 'Potential login with a self-created user' (Yüksek)
+  - EVTOBJ '1017' = EVTACT 'Locked account, attempt to login' (Orta)
+  - EVTOBJ '1058' = EVTACT 'Repeating authorization failures' (Düşük)
+  - EVTOBJ '1055' = EVTACT 'RFC usage alerts' (Bilgi)
 
-### KEYWORD ALANLARI (Aggregation ve filtreleme yapılabilir)
-- System: SAP system adı (ESP, BEP...)
-- User: Kullanıcı ID (AKACAR, SBUSER_RFC...)
-- Program: Program adı
-- Terminal: IP/Hostname
-- Action: Olay tipi (keyword)  
-- Listener: Alarm kodu (keyword)
-- CompanyCode: Şirket kodu
-- Severity: Şiddet seviyesi (text)
-- SeverityNum: Şiddet seviyesi (integer)
-- @timestamp: Tarih (date)
+### KOLONLAR (Excel Şemasına Göre)
+- EVTDAT: Olay tarihi (Format: YYYYMMDD, örn: '20220516')
+- EVTTIM: Olay saati (Format: HHMMSS)
+- EVTSYS: SAP system adı (ESP, BET...)
+- EVTCLN: Client numarası (örn: 666.0)
+- EVTOBJ: Alarm Kodu (Sayısal, örn: 1015, 1079)
+- EVTACT: Olay Açıklaması / Tipi (örn: 'Remote Function Call (inbound)')
+- EVTSEV: Şiddet seviyesi (Sayısal, örn: 8)
+- EVTUSR: Kullanıcı ID (örn: 'SAPJSF', 'SOLMAN_BTC')
+- EVTTER: Terminal / Cihaz adı (örn: 'ESMA9003.BTCTR.LOCAL')
+- EVTPRO: Program Adı (örn: 'SAPJCo750')
+- EVTTCODE: Transaction kodu
+- EVTMSG_TEXT: Olayın tam ve detaylı metin açıklaması (örn: 'User SAPJSF performed an inbound remote function call...')
+- EVTMSG_V2: RFC fonksiyonu gibi detay bilgiler (örn: 'BAPI_USER_GET_DETAIL')
+- EVTRAW: JSON formatında detaylı çağrı bilgisi
+- SYSTYPT: Sistem Tipi (örn: 'DEV', 'PRD')
 
-### TEXT ALANLARI (Full-text search, aggregation YAPILMAZ)
-- Message: Olay açıklaması
-- UserName: Kullanıcı tam adı
-
-### GUNCEL VERITABANI DEGERLERI (Dinamik):
+### GÜNCEL VERİTABANI DEĞERLERİ (Dinamik):
 {schema_context}
 
 ## KURALLAR
-1. **Action Eşleşmesi:** Kullanıcının sorduğu eylem (Örn: "Kilitli hesap") Şema'daki Action listesinde varsa, o Action değerini filtrele.
-2. **Listener vs User:** "Hangi Listener" veya "Alarm kodu" sorulursa `Listener` alanına göre aggregation yap (`User` değil!).
-3. **En Çok / En Az (Sıralama):** 
-   - "En çok", "en fazla" -> `order: {{ "_count": "desc" }}`
-   - "En az", "nadir" -> `order: {{ "_count": "asc" }}`
-4. **HAFTA KARŞILAŞTIRMA:** "Geçen haftaya göre", "Önceki haftaya göre", "Haftalık değişim" gibi AÇIK hafta referansı olan sorularda zaman filtresi (range) EKLEME! Sadece aggregation kısmını yaz. Zaman filtresini sistem otomatik ekleyecek.
-5. **GENEL TREND:** "Trendi nasıl", "trend analizi", "zaman dağılımı" gibi genel trend sorularında `date_histogram` kullan. Bu sorularda hafta karşılaştırması YAPMA, sadece zaman bazlı dağılımı göster.
-6. **Kıyaslama Aggregation:** Karşılaştırma sorularında TEK Action'a filtreleme. TÜM verileri aggregation ile grupla (Action bazlı terms).
-7. **Zaman Filtreli Normal Sorular:** "Son 24 saat", "bugün", "bu hafta" gibi TREND OLMAYAN zaman sorularında range filtresi ekle: `now-24h`, `now/d`, `now/w`.
-8. **Login Hatası:** "Login hatası" → Action "Locked account, attempt to login" filtrele.
-9. **Risk/Zafiyet:** Sadece "zafiyet" → `Action: "Vulnerable program execution"`. AMA "riskler" (çoğul/genel) → filtreleme yapma, tüm Action'ları grupla.
-10. **Terminal Hatası:** "Terminal hatası" veya "terminal error" → Terminal alanına göre aggregation yap.
-11. **Sistem Bazlı:** "ESP sisteminde", "BEP'te" gibi ifadelerde `System` alanını filtrele.
-12. **"X bazında listele" = Aggregation:** "User bazında", "program bazında", "sistem bazında listele" dendiğinde o alana `terms` AGGREGATION yap. Şema'daki değerleri `terms` FİLTRE olarak listeleme! Dinamik değerler sadece tek bir kullanıcı/program adı sorulduğunda filtre olarak kullanılır.
-13. **Placeholder KULLANMA:** `<terminal_adı>`, `<kullanıcı>`, `<değer>` gibi placeholder değerler KOYMA. Hangi değer soruluyorsa, onu aggregation ile bul.
-14. **Sadece JSON döndür.** Açıklama, yorum veya metin ekleme.
+1. **Action Eşleşmesi:** Kullanıcının sorduğu eylem Şema'daki EVTACT listesinde varsa, WHERE EVTACT = '...' ile filtrele.
+2. **Listener vs User:** "Hangi Listener" veya "Alarm kodu" sorulursa EVTOBJ'ye göre GROUP BY yap.
+3. **En Çok / En Az:**
+   - "En çok", "en fazla", "most" → ORDER BY count DESC
+   - "En az", "nadir", "least" → ORDER BY count ASC
+4. **HAFTA KARŞILAŞTIRMA:** "Geçen haftaya göre", "Önceki haftaya göre" gibi AÇIK hafta referansı olan sorularda EVTDAT filtresi EKLEME! Sadece GROUP BY yap. Zaman filtresini sistem otomatik ekleyecek.
+5. **GENEL TREND:** "Trendi nasıl", "trend analizi" gibi genel trend sorularında `EVTDAT` üzerinden gruplama yap.
+6. **Zaman Filtreli Normal Sorular:** "Bugün", "bu hafta" gibi zaman filtrelerini "YYYYMMDD" formatında EVTDAT kolonunu kullanarak yaz (örn: EVTDAT >= '20231024').
+7. **Login Hatası:** "Login hatası", "hatalı giriş" → WHERE EVTOBJ IN ('1017', '3000')
+8. **Risk/Zafiyet:** Sadece "zafiyet" → WHERE EVTOBJ = '1079'. AMA "riskler" (çoğul/genel) → filtreleme yapma, tüm EVTACT'leri grupla.
+9. **Detay İstenirse:** Ekranda "detaylı listele", "kim ne yapmış" deniyorsa sadece COUNT() değil `EVTUSR, EVTTER, EVTSYS, EVTDAT, EVTMSG_TEXT, EVTMSG_V2` gibi anlamlı kolonları seç (SELECT).
+10. **Placeholder KULLANMA:** <terminal_adı>, <kullanıcı> gibi sahte veya placeholder değerler KOYMA.
+11. **UP TO / LIMIT:** SAP API'de sınırlandırma için "UP TO n ROWS" veya "LIMIT n" desteklenmez, limit ihtiyacı varsa kullanma.
+12. **Sadece SQL döndür.** Markdown kod bloğu (` ```sql `) KULLANMA. Başında veya sonunda açıklama yapma. Noktalı virgül (;) KOYMA.
 
-## ENGLISH KEYWORD RULES (When question is in English, apply these mappings)
-15. **"failed login" / "locked account"** → filter by Action: "Locked account, attempt to login"
-16. **"RFC" / "RFC usage" / "RFC alerts"** → filter by Action: "RFC usage alerts"
-17. **"vulnerability" / "vulnerable"** → filter by Action: "Vulnerable program execution"
-18. **"authorization failure"** → filter by Action: "Repeating authorization failures"
-19. **"users" / "by user"** → aggregate on field "User" (NOT "Listener")
-20. **"terminals" / "by terminal"** → aggregate on field "Terminal"
-21. **"systems" / "by system"** → aggregate on field "System"
-22. **Date format:** If user writes DD.MM.YYYY (e.g. 01.02.2026), convert to ISO format YYYY-MM-DD (e.g. 2026-02-01) in the range filter. "between X and Y" → range with gte/lt.
-23. **"most" / "top"** → order: {{ "_count": "desc" }}. **"least" / "fewest"** → order: {{ "_count": "asc" }}
+## TÜRKÇE VE İNGİLİZCE KELİME KURALLARI
+13. **Kullanıcı / User:** "Kullanıcı", "user", "kullanıcıları", "kim" → Kesinlikle SELECT EVTUSR ve GROUP BY EVTUSR yap. Asla EVTOBJ seçme!
+14. **Terminal / IP:** "Terminal", "cihaz", "IP" → SELECT EVTTER ve GROUP BY EVTTER
+15. **Sistem / System:** "Sistem", "system" → SELECT EVTSYS ve GROUP BY EVTSYS
+16. **Login Hatası:** "Login hatası", "failed login", "locked account" → WHERE EVTOBJ IN ('1017', '3000')
+17. **RFC:** "RFC", "RFC usage", "RFC alert" → WHERE EVTOBJ IN ('1015', '1011')
+18. **Zafiyet:** "Zafiyet", "vulnerability" → WHERE EVTOBJ = '1079'
+19. **Download / İndirme:** "download", "indirme" → WHERE EVTACT = 'Mass data download'
+20. **Tarih Aralığı:** "Son iki hafta", "son 1 ay", "son 30 gün" gibi ifadelerde mutlaka `EVTDAT` filtresi yaz. (Örn: `WHERE EVTDAT >= '20260511'`). "Geçen haftaya göre" gibi kıyaslama (trend) sorularında filtre EKLEME.
 
-## ORNEKLER
+## ÖRNEKLER
 
 ### Örnek 1: Listener Aggregation
 Soru: "Hangi listener en fazla alarm üretmiş?"
-Sorgu:
-{{
-    "size": 0,
-    "aggs": {{
-        "listeners": {{
-            "terms": {{ "field": "Listener", "size": 10, "order": {{ "_count": "desc" }} }}
-        }}
-    }}
-}}
+SQL:
+SELECT EVTOBJ, COUNT(*) as count FROM "/ABEX/SEFWE" GROUP BY EVTOBJ ORDER BY count DESC
 
 ### Örnek 2: Login hatası terminale göre
 Soru: "Hangi terminalde en çok login hatası var?"
-Sorgu:
-{{
-    "size": 0,
-    "query": {{ "term": {{ "Action": "Locked account, attempt to login" }} }},
-    "aggs": {{
-        "terminals": {{
-            "terms": {{ "field": "Terminal", "size": 10, "order": {{ "_count": "desc" }} }}
-        }}
-    }}
-}}
-
-### Örnek 11: Terminal bazlı action filtresi (genel pattern)
-Soru: "Hangi terminallerde en çok Repeating authorization failures hatası alınmıştır?"
-Sorgu:
-{{
-    "size": 0,
-    "query": {{ "term": {{ "Action": "Repeating authorization failures" }} }},
-    "aggs": {{
-        "by_terminal": {{
-            "terms": {{ "field": "Terminal", "size": 10, "order": {{ "_count": "desc" }} }}
-        }}
-    }}
-}}
+SQL:
+SELECT EVTTER, COUNT(*) as count FROM "/ABEX/SEFWE" WHERE EVTOBJ = '1017' GROUP BY EVTTER ORDER BY count DESC
 
 ### Örnek 3: Hafta Karşılaştırma (Zaman filtresi YOK — sistem ekleyecek)
 Soru: "Önceki haftaya göre artış gösteren riskler neler?"
-Sorgu:
-{{
-    "size": 0,
-    "aggs": {{
-        "by_action": {{
-            "terms": {{ "field": "Action", "size": 10 }}
-        }}
-    }}
-}}
+SQL:
+SELECT EVTACT, COUNT(*) as count FROM "/ABEX/SEFWE" GROUP BY EVTACT ORDER BY count DESC
 
 ### Örnek 4: Hafta Karşılaştırma — Listener bazında
 Soru: "Geçen haftaya göre listener dağılımı nasıl değişti?"
-Sorgu:
-{{
-    "size": 0,
-    "aggs": {{
-        "by_listener": {{
-            "terms": {{ "field": "Listener", "size": 10 }}
-        }}
-    }}
-}}
+SQL:
+SELECT EVTOBJ, COUNT(*) as count FROM "/ABEX/SEFWE" GROUP BY EVTOBJ ORDER BY count DESC
 
-### Örnek 10: Genel Trend (date_histogram)
-Soru: "1079 kodlu zafiyetten kaç alert gelmiştir trendi nasıldır"
-Sorgu:
-{{
-    "size": 0,
-    "query": {{ "term": {{ "Listener": "1079" }} }},
-    "aggs": {{
-        "trend_over_time": {{
-            "date_histogram": {{ "field": "@timestamp", "calendar_interval": "week" }}
-        }}
-    }}
-}}
+### Örnek 5: Download Yapanlar
+Soru: "Son 30 günde en çok download yapan kullanıcılar kimler?"
+SQL:
+SELECT EVTUSR, COUNT(*) as count FROM "/ABEX/SEFWE" WHERE EVTACT = 'Mass data download' GROUP BY EVTUSR ORDER BY count DESC
 
-### Örnek 5: Sistem bazlı kullanıcı sorgusu
+### Örnek 6: Sistem bazlı kullanıcı sorgusu
 Soru: "ESP sisteminde en çok hata alan kullanıcılar kimler?"
-Sorgu:
-{{
-    "size": 0,
-    "query": {{ "term": {{ "System": "ESP" }} }},
-    "aggs": {{
-        "users": {{
-            "terms": {{ "field": "User", "size": 10, "order": {{ "_count": "desc" }} }}
-        }}
-    }}
-}}
+SQL:
+SELECT EVTUSR, COUNT(*) as count FROM "/ABEX/SEFWE" WHERE EVTSYS = 'ESP' GROUP BY EVTUSR ORDER BY count DESC
 
 ### Örnek 6: Program bazlı hata sayısı
 Soru: "En çok hata üreten programlar hangileri?"
-Sorgu:
-{{
-    "size": 0,
-    "aggs": {{
-        "programs": {{
-            "terms": {{ "field": "Program", "size": 10, "order": {{ "_count": "desc" }} }}
-        }}
-    }}
-}}
+SQL:
+SELECT EVTPRO, COUNT(*) as count FROM "/ABEX/SEFWE" GROUP BY EVTPRO ORDER BY count DESC
 
-### Örnek 7: Tarih aralıklı sorgu (trend DEĞİL)
-Soru: "Son 7 günde en çok alarm üreten kullanıcılar"
-Sorgu:
-{{
-    "size": 0,
-    "query": {{
-        "range": {{ "@timestamp": {{ "gte": "now-7d", "lt": "now" }} }}
-    }},
-    "aggs": {{
-        "users": {{
-            "terms": {{ "field": "User", "size": 10, "order": {{ "_count": "desc" }} }}
-        }}
-    }}
-}}
-
-### Örnek 8: Sistem bazlı action sayısı
+### Örnek 7: Sistem bazlı action sayısı
 Soru: "Her sistemde kaç alarm var?"
-Sorgu:
-{{
-    "size": 0,
-    "aggs": {{
-        "by_system": {{
-            "terms": {{ "field": "System", "size": 10 }},
-            "aggs": {{
-                "by_action": {{
-                    "terms": {{ "field": "Action", "size": 10 }}
-                }}
-            }}
-        }}
-    }}
-}}
+SQL:
+SELECT EVTSYS, EVTACT, COUNT(*) as count FROM "/ABEX/SEFWE" GROUP BY EVTSYS, EVTACT ORDER BY EVTSYS, count DESC
 
-### Örnek 9: Sistem + Action filtresi + User bazında grupla
-Soru: "BEP sisteminde Repeating authorization failures hatası user bazında listele"
-Sorgu:
-{{
-    "size": 0,
-    "query": {{
-        "bool": {{
-            "must": [
-                {{ "term": {{ "System": "BEP" }} }},
-                {{ "term": {{ "Action": "Repeating authorization failures" }} }}
-            ]
-        }}
-    }},
-    "aggs": {{
-        "by_user": {{
-            "terms": {{ "field": "User", "size": 20, "order": {{ "_count": "desc" }} }}
-        }}
-    }}
-}}
+### Örnek 8: Sistem + Action filtresi + User bazında grupla
+Soru: "BET sisteminde Repeating authorization failures hatası user bazında listele"
+SQL:
+SELECT EVTUSR, COUNT(*) as count FROM "/ABEX/SEFWE" WHERE EVTSYS = 'BET' AND EVTOBJ = '1058' GROUP BY EVTUSR ORDER BY count DESC
 
-### Example 10 (English): RFC alerts by user in a date range
-Question: "List users with the most RFC usage alerts between 01.02.2026 and 04.02.2026 grouped by count"
-Query:
-{{
-    "size": 0,
-    "query": {{
-        "bool": {{
-            "must": [
-                {{ "term": {{ "Action": "RFC usage alerts" }} }},
-                {{ "range": {{ "@timestamp": {{ "gte": "2026-02-01", "lt": "2026-02-05" }} }} }}
-            ]
-        }}
-    }},
-    "aggs": {{
-        "by_user": {{
-            "terms": {{ "field": "User", "size": 20, "order": {{ "_count": "desc" }} }}
-        }}
-    }}
-}}
+### Örnek 9: RFC kullanıcı bazlı (ÇOK ÖNEMLİ)
+Soru: "son iki haftada en çok RFC usage alert alan kullanıcıları listele"
+SQL:
+SELECT EVTUSR, COUNT(*) as count FROM "/ABEX/SEFWE" WHERE EVTOBJ IN ('1015', '1011') GROUP BY EVTUSR ORDER BY count DESC
 
-### Example 11 (English): Terminals with most RFC errors
-Question: "Which terminals have the most RFC usage alerts?"
-Query:
-{{
-    "size": 0,
-    "query": {{ "term": {{ "Action": "RFC usage alerts" }} }},
-    "aggs": {{
-        "by_terminal": {{
-            "terms": {{ "field": "Terminal", "size": 10, "order": {{ "_count": "desc" }} }}
-        }}
-    }}
-}}
+### Örnek 10: Terminal bazlı RFC
+Soru: "Which terminals have the most RFC usage alerts?"
+SQL:
+SELECT EVTTER, COUNT(*) as count FROM "/ABEX/SEFWE" WHERE EVTOBJ IN ('1015', '1011') GROUP BY EVTTER ORDER BY count DESC
 
-### Example 12 (English): Locked account attempts in last 7 days
-Question: "List all locked account login attempts in the last 7 days"
-Query:
-{{
-    "size": 20,
-    "query": {{
-        "bool": {{
-            "must": [
-                {{ "term": {{ "Action": "Locked account, attempt to login" }} }},
-                {{ "range": {{ "@timestamp": {{ "gte": "now-7d", "lt": "now" }} }} }}
-            ]
-        }}
-    }},
-    "sort": [{{ "@timestamp": "desc" }}]
-}}
+### Örnek 11: Detay Listesi (Genel)
+Soru: "List all locked account login attempts"
+SQL:
+SELECT EVTUSR, EVTTER, EVTSYS, EVTDAT, EVTTIM, EVTMSG_TEXT FROM "/ABEX/SEFWE" WHERE EVTOBJ IN ('1017', '3000') ORDER BY EVTDAT DESC, EVTTIM DESC
+
+### Örnek 12: Genel Trend (tarihe gore grupla)
+Soru: "1079 kodlu zafiyetten kaç alert gelmiştir trendi nasıldır"
+SQL:
+SELECT EVTDAT as period, COUNT(*) as count FROM "/ABEX/SEFWE" WHERE EVTOBJ = '1079' GROUP BY EVTDAT ORDER BY period
 
 Soru: {question}
-Sorgu:"""
+SQL:"""
+
+GROQ_QUERY_GENERATION_PROMPT = """Sen uzman bir SAP SQL motorusun. Görevin, kullanıcının isteğini sadece ve sadece SAP uyumlu bir SQL sorgusuna çevirmektir. Hiçbir açıklama, markdown veya noktalama işareti ekleme.
+
+## TABLO: "/ABEX/SEFWE"
+
+### KOLON İLİŞKİLERİ
+- **EVTOBJ** (listener): '1079' (Zafiyet), '1017' veya '3000' (Login Hatası), '1015' veya '1011' (RFC)
+- EVTDAT: YYYYMMDD formatında tarih
+- EVTSYS: SAP system adı (örn: ESP, BET)
+- EVTUSR: Kullanıcı ID
+- EVTTER: Terminal/IP
+
+### KURALLAR
+1. SADECE SQL DÖNDÜR. Markdown (```sql) KULLANMA.
+2. Noktalı virgül (;) KULLANMA.
+3. SAP API LIMIT veya TOP desteklemez. UP TO N ROWS kullanma.
+4. "En çok" -> ORDER BY COUNT(*) DESC
+5. Zaman filtresi gerekmiyorsa ekleme, sadece isteneni GROUP BY yap.
+6. Placeholder KULLANMA. Sadece tabloda olan verileri kullan.
+
+### ÖRNEKLER
+Soru: "Which terminals have the most RFC usage alerts?"
+SELECT EVTTER, COUNT(*) as count FROM "/ABEX/SEFWE" WHERE EVTOBJ IN ('1015', '1011') GROUP BY EVTTER ORDER BY count DESC
+
+Soru: {question}
+"""
 
 SUMMARIZATION_PROMPT = """You are a senior SAP security consultant.
 
-## CRITICAL: LANGUAGE RULE
-- Detect the language of the QUESTION below.
-- If the question is in English → your ENTIRE response MUST be in English. Do NOT include ANY Turkish text.
-- If the question is in Turkish → your ENTIRE response MUST be in Turkish. Do NOT include ANY English text.
-- This rule is ABSOLUTE. Never mix languages.
+## DİL KURALI (KESİN ZORUNLULUK)
+- Kullanıcının "Soru" su TÜRKÇE ise YANITININ TAMAMI TÜRKÇE OLMAK ZORUNDADIR! "No data found", "Action recommendation" gibi İngilizce kalıplar asla kullanma.
+- Kullanıcının "Soru" su İNGİLİZCE ise yanıtının tamamı İngilizce olmalıdır.
 
-## Listener Reference Table (internal only)
-{priority_text}
+## BOŞ VERİ KURALI (ÇOK KRİTİK)
+- Eğer SQL sonucu "[DATA SUMMARY: 0 rows returned]" veya "No data found" diyorsa, SADECE VE SADECE ŞUNU YAZ:
+  "Bu tarih veya filtre kriterlerine uyan herhangi bir güvenlik kaydı bulunamadı."
+- ASLA tablo çizme, ASLA nasıl yapılacağını açıklama. Sadece kaydın bulunamadığını söyle.
 
-## STRICT RULES
-1. Use ONLY the numbers from the "Elasticsearch Result" section below.
-2. Do NOT invent, estimate, or add any data not present in the result.
-3. Report all buckets (key + doc_count) exactly as they appear.
-4. "hits.total.value" is the total record count — mention it.
-5. If the result is empty, say only "No data found matching these criteria." (English) or "Bu kriterlere uyan veri bulunamadı." (Turkish) — use ONLY the one matching the question language.
-6. Do NOT repeat prompt instructions, headers, or rules in your answer.
+## Yanıt Formatı (Dolu Veri İçin - Türkçe)
+1. Sorunun cevabını vererek kısa ve profesyonel bir özet yaz.
+2. Verileri okunaklı bir Markdown tablosu veya listeyle sun (Kolon adlarını Türkçeleştir).
+3. Siber Güvenlik ekibi için 1 cümlelik aksiyon önerisi ver.
+*Dikkat: Soru bir kıyaslama/trend sorusu değilse "Geçen haftaya göre artış" gibi uydurma veriler ekleme! Sadece sana verilen SQL sonucunu özetle.*
 
-## How to Answer
-- First sentence: direct answer to the question
-- List each bucket: name, count, percentage (doc_count / total × 100)
-- If Listener codes appear, explain them in parentheses
-- End with 1 sentence action recommendation
+## Yanıt Formatı (Dolu Veri İçin - English)
+- Direct answer.
+- Bullet points or tables.
+- End with an action recommendation.
 
 ## Question
 {question}
 
-## Elasticsearch Result
+## SQL Result
 {result}
 
 ## Answer:"""
 
-TREND_COMPARISON_PROMPT = """Sen kıdemli bir SAP güvenlik danışmanısın. İki farklı haftanın Elasticsearch sonuçlarını karşılaştırıp, kısa ve profesyonel bir trend raporu hazırla.
+TREND_COMPARISON_PROMPT = """Sen kıdemli bir SAP güvenlik danışmanısın. İki farklı haftanın SQL sonuçlarını karşılaştırıp, kısa ve profesyonel bir trend raporu hazırla.
 
-## LANGUAGE RULE
-- If the question below is written in English, you MUST respond entirely in English.
-- Eğer soru Türkçe ise Türkçe cevap ver.
+## DİL KURALI (KESİN ZORUNLULUK)
+- Kullanıcının "Soru" su TÜRKÇE ise YANITININ TAMAMI TÜRKÇE OLMAK ZORUNDADIR! İngilizce kalıplar asla kullanma.
+- Kullanıcının "Soru" su İNGİLİZCE ise yanıtının tamamı İngilizce olmalıdır.
 
 ## Arka Plan (Kullanıcıya GÖSTERME)
 {priority_text}
@@ -317,10 +201,10 @@ TREND_COMPARISON_PROMPT = """Sen kıdemli bir SAP güvenlik danışmanısın. İ
 2. **Yüzdesel değişim hesapla:** ((bu_hafta - önceki_hafta) / önceki_hafta) × 100
 3. **Artış varsa 📈, azalış varsa 📉 ikonu kullan.**
 4. **Özet tablo formatı kullan:**
-   - � Vulnerable program execution: 30 → 45 (%50 artış)
-   - � Locked account: 200 → 150 (%25 azalış)
+   - 📈 Vulnerable program execution: 30 → 45 (%50 artış)
+   - 📉 Locked account: 200 → 150 (%25 azalış)
 5. **Toplam alarm sayısını da karşılaştır.**
-6. **En kritik değişikliğe dikkat çek ve kısa aksiyon önerisi yaz.**
+6. **En kritik değişikliğe dikkat çek ve kısa Türkçe aksiyon önerisi yaz.**
 7. **Önceki hafta 0 ise ve bu hafta > 0 ise "Yeni ortaya çıkan risk" olarak belirt.**
 
 ## Soru

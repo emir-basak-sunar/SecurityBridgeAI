@@ -12,7 +12,7 @@ import type { AgentResponse, StatusResponse, QueryHistoryItem } from "./types";
 function App() {
   const [response, setResponse] = useState<AgentResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<StatusResponse>({ elasticsearch: false, ollama: false, agent_initialized: false });
+  const [status, setStatus] = useState<StatusResponse>({ postgresql: false, ollama: false, agent_initialized: false });
   const [history, setHistory] = useState<QueryHistoryItem[]>([]);
   const [activePanel, setActivePanel] = useState<"response" | "data" | "dashboard">("dashboard");
   const mainRef = useRef<HTMLDivElement>(null);
@@ -23,7 +23,7 @@ function App() {
         const s = await getStatus();
         setStatus(s);
       } catch {
-        setStatus({ elasticsearch: false, ollama: false, agent_initialized: false });
+        setStatus({ postgresql: false, ollama: false, agent_initialized: false });
       }
     };
     checkStatus();
@@ -31,11 +31,11 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleAsk = async (question: string) => {
+  const handleAsk = async (question: string, provider: string = "ollama") => {
     setLoading(true);
     setResponse(null);
     try {
-      const result = await askAgent(question);
+      const result = await askAgent(question, provider);
       setResponse(result);
 
       const item: QueryHistoryItem = {
@@ -51,8 +51,8 @@ function App() {
     } catch (err) {
       setResponse({
         question,
-        es_query: null,
-        es_result: null,
+        sql_query: null,
+        sql_result: null,
         summary: "",
         query_type: "normal",
         error: `Bağlantı hatası: ${err}`,
@@ -64,7 +64,7 @@ function App() {
   };
 
   const handleHistoryClick = (item: QueryHistoryItem) => {
-    handleAsk(item.question);
+    handleAsk(item.question, "ollama"); // Default back to ollama or keep track of provider in history if needed
   };
 
   return (

@@ -2,8 +2,8 @@
 pandas>=2.0.0
 openpyxl>=3.1.0
 
-# Elasticsearch Client
-elasticsearch>=8.12.0
+# PostgreSQL Client
+psycopg2-binary>=2.9.0
 
 # LangChain for LLM orchestration
 langchain>=0.1.0
@@ -22,6 +22,9 @@ requests>=2.31.0
 # Utilities
 python-dateutil>=2.8.0
 tqdm>=4.66.0
+
+# Fuzzy matching
+thefuzz>=0.22.0
 
 # Web Server
 flask>=3.0.0

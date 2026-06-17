@@ -1,18 +1,27 @@
-import os as _os
+import os
 import json
 
-# Elasticsearch Configuration
-ES_HOST = "http://localhost:9200"
-ES_INDEX = "sap-security-logs"
-ES_TIMEOUT = 30
+# SAP REST API Configuration
+SAP_API_URL = "http://solmandev.btctr.local:8000/sap/bc/rest/zbtc_json_api/driver"
+SAP_USER = "ARGE_USER"
+SAP_PASSWORD = "Ekonum01"
+
+# Table name
+SAP_TABLE = '"/ABEX/SEFWE"'
+
 
 # LLM Configuration
-OLLAMA_MODEL = "llama3.1:8b"
-OLLAMA_BASE_URL = "http://localhost:11434"
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama") # 'ollama' veya 'groq'
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
+# Groq Configuration
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "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")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3-32b")
 
 # Priority Configuration
 try:
-    PRIORITY_CONFIG_FILE = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "priority_config.json")
+    PRIORITY_CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "priority_config.json")
 except Exception:
     # Fallback if path resolution fails
     PRIORITY_CONFIG_FILE = "priority_config.json"

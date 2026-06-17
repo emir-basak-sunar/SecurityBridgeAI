@@ -1,71 +1,63 @@
 from typing import Dict, List, Optional, Any
 from thefuzz import process
-from src.db_client import ElasticsearchClient
+from src.db_client import SAPApiClient
 
 class SchemaRegistry:
     """
-    Registry for valid Elasticsearch field values.
+    Registry for valid SAP API field values.
     Used to map fuzzy user inputs to exact database values.
     """
     
     # Static aliases for common terms (Synonym Mapping)
     ALIASES = {
-        "Action": {
-            "zafiyet": "Vulnerable program execution",
-            "kod hatası": "Vulnerable program execution",
+        "EVTACT": {
+            "zafiyet": "SecurityBridge License Check",
             "kod hatasi": "Vulnerable program execution",
             "vulnerability": "Vulnerable program execution",
-            "yetki hatası": "Repeating authorization failures",
-            "yetkilendirme hatası": "Repeating authorization failures",
-            "authorization failure": "Repeating authorization failures",
             "yetki": "Repeating authorization failures",
+            "authorization failure": "Repeating authorization failures",
             "kilitli hesap": "Locked account, attempt to login",
             "locked account": "Locked account, attempt to login",
-            "rfc uyarısı": "RFC usage alerts",
             "rfc": "RFC usage alerts",
             "self created": "Potential login with a self-created user",
-            "kendi oluşturduğu kullanıcı": "Potential login with a self-created user",
             "supheli kullanici": "Potential login with a self-created user"
         }
     }
 
-    def __init__(self, es_client: ElasticsearchClient):
-        self.es_client = es_client
-        self.schema: Dict[str, List[Any]] = {
-            "Action": [],
-            "System": [],
-            "Program": [],
-            "User": [],
-            "Terminal": [],
-            "Listener": [],
-            "CompanyCode": []
+    def __init__(self, db_client: SAPApiClient):
+        self.db_client = db_client
+        self.field_values: Dict[str, List[Any]] = {
+            "EVTACT": [],
+            "EVTSYS": [],
+            "EVTPRO": [],
+            "EVTUSR": [],
+            "EVTTER": [],
+            "EVTOBJ": []
         }
         self.initialized = False
 
     def load_schema(self):
-        """Fetches unique values from Elasticsearch to build the registry."""
-        print("[*] Şema yükleniyor (ES'den benzersiz değerler alınıyor)...")
+        """Fetches unique values from SAP API to build the registry."""
+        print("[*] Sema yukleniyor (SAP API'den benzersiz degerler aliniyor)...")
         
-        if not self.es_client.client and not self.es_client.connect():
-             print("[!] Şema yüklenemedi: ES bağlantısı yok.")
-             return
+        if not self.db_client.session:
+            # Force connection if not active
+            self.db_client.connect()
 
-        # Define fields to load
-        fields_to_load = ["Action", "System", "Program", "User", "Terminal", "Listener", "CompanyCode"]
+        # Define fields to load. Added more fields as requested.
+        fields_to_load = ["EVTACT", "EVTSYS", "EVTTER", "EVTOBJ", "EVTUSR", "EVTPRO", "EVTMSG_V2", "SYSTYPT", "EVTTCODE"]
         
         for field in fields_to_load:
-            # Keyword alanı ise .keyword eklemeye gerek yok çünkü ES mapping'de keyword olarak defined
-            # Ancak kodda alan adları olduğu gibi kullanılıyor.
-            values = self.es_client.get_unique_values(field, size=1000)
+            values = self.db_client.get_unique_values(field, size=100)
             if values:
-                self.schema[field] = values
-                print(f"    - {field}: {len(values)} değer yüklendi")
+                self.field_values[field] = values
+                print(f"    - {field}: {len(values)} deger yuklendi")
             else:
-                print(f"    - {field}: Değer bulunamadı")
+                print(f"    - {field}: Deger bulunamadi")
         
-        # Fallback değerler (Veritabanı boşsa veya erişilemezse kodun çalışmaya devam etmesi için)
-        if not self.schema["Action"]:
-             self.schema["Action"] = [
+        # Fallback degerler
+        if not self.field_values["EVTACT"]:
+             self.field_values["EVTACT"] = [
                  "Vulnerable program execution",
                  "Repeating authorization failures",
                  "Locked account, attempt to login", 
@@ -74,26 +66,18 @@ class SchemaRegistry:
              ]
 
         self.initialized = True
-        print("✅ Şema kaydı (Schema Registry) hazır.")
+        print("[OK] Sema kaydi (Schema Registry) hazir.")
 
     def match_value(self, field: str, value: Any, threshold: int = 70) -> Optional[Any]:
-        """
-        Finds the best matching value in the registry for a given field.
-        
-        1. Checks static aliases (if string).
-        2. Checks exact match.
-        3. Uses fuzzy matching (if string).
-        """
         if not value:
             return None
             
-        # Listener gibi sayısal alanlar için özel işlem
-        if field == "Listener":
-            # Gelen değer sayı ise veya sayıya çevrilebiliyorsa direkt kontrol et
+        field = field.upper()
+        if field == "EVTOBJ":
             try:
-                val_int = int(str(value))
-                if val_int in self.schema["Listener"]:
-                    return val_int
+                val_str = str(value).strip()
+                if val_str in [str(v) for v in self.field_values.get("EVTOBJ", [])]:
+                    return val_str
             except ValueError:
                 pass
         
@@ -107,9 +91,9 @@ class SchemaRegistry:
                     return target
         
         # Get candidate list
-        choices = self.schema.get(field, [])
+        choices = self.field_values.get(field, [])
         if not choices:
-            return value # Schema boşsa, LLM'in verdiği değeri olduğu gibi döndür (Fallback)
+            return value
 
         # 2. Exact Match Check (Case insensitive)
         for choice in choices:
@@ -117,45 +101,45 @@ class SchemaRegistry:
                 return choice
 
         # 3. Fuzzy Matching
-        # process.extractOne returns (match, score)
         best_match = process.extractOne(value_str, [str(c) for c in choices])
         
         if best_match:
             match_value, score = best_match
             if score >= threshold:
-                # Orijinal tipi/değeri bulup döndür
                 for choice in choices:
                     if str(choice) == match_value:
                         return choice
         
-        # Eşleşme yoksa None dönüyor, bu durumda çağırıcı LLM'in değerini veya hata mesajı kullanabilir
-        # Biz burada None dönelim, QueryBuilder karar versin
         return None
 
     def get_schema_context(self) -> str:
-        """Returns a formatted string of the current schema for LLM context."""
         if not self.initialized:
-            return "Şema henüz yüklenmedi."
+            return "Sema henuz yuklenmedi."
             
         context_parts = []
         
-        # Program listesi (popüler olanlar)
-        if self.schema.get("Program"):
-            programs = sorted([str(p) for p in self.schema["Program"][:15]])
-            context_parts.append(f"- Program (Top 15): {', '.join(programs)}")
+        if self.field_values.get("EVTPRO"):
+            programs = sorted([str(p) for p in self.field_values["EVTPRO"][:15]])
+            context_parts.append(f"- EVTPRO (Program - Top 15): {', '.join(programs)}")
             
-        # User listesi
-        if self.schema.get("User"):
-            users = sorted([str(u) for u in self.schema["User"][:20]])
-            context_parts.append(f"- User (Top 20): {', '.join(users)}")
+        if self.field_values.get("EVTUSR"):
+            users = sorted([str(u) for u in self.field_values["EVTUSR"][:20]])
+            context_parts.append(f'- EVTUSR (User - Top 20): {", ".join(users)}')
             
-        # System listesi
-        if self.schema.get("System"):
-            systems = sorted([str(s) for s in self.schema["System"]])
-            context_parts.append(f"- System: {', '.join(systems)}")
+        if self.field_values.get("EVTSYS"):
+            systems = sorted([str(s) for s in self.field_values["EVTSYS"]])
+            context_parts.append(f"- EVTSYS (System): {', '.join(systems)}")
+
+        if self.field_values.get("EVTACT"):
+            actions = sorted([str(a) for a in self.field_values["EVTACT"][:20]])
+            context_parts.append(f"- EVTACT (Action): {', '.join(actions)}")
             
-        # Action listesi - Listener ile ilişkilendirilmiş hali prompts.py'da var ama 
-        # burada veritabanından gelen güncel listeyi de ekleyebiliriz.
-        # Ancak prompts.py zaten statik tanımları içeriyor, buraya sadece dinamik olanları ekleyelim.
-        
+        if self.field_values.get("EVTMSG_V2"):
+            msgs = sorted([str(m) for m in self.field_values["EVTMSG_V2"][:15]])
+            context_parts.append(f"- EVTMSG_V2 (Functions): {', '.join(msgs)}")
+            
+        if self.field_values.get("SYSTYPT"):
+            types = sorted([str(t) for t in self.field_values["SYSTYPT"][:5]])
+            context_parts.append(f"- SYSTYPT (Sys Types): {', '.join(types)}")
+            
         return "\n".join(context_parts)

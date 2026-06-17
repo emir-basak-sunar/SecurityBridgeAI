@@ -28,6 +28,7 @@ def get_agent():
     global agent
     if agent is None:
         agent = SAPLogAnalysisAgent()
+    if not agent.initialized:
         agent.initialize()
     return agent
 
@@ -42,24 +43,25 @@ def api_ask():
     question = data["question"].strip()
     if not question:
         return jsonify({"error": "question cannot be empty"}), 400
+        
+    provider = data.get("provider", "ollama")
     
     a = get_agent()
-    result = a.ask_structured(question)
+    result = a.ask_structured(question, provider=provider)
     
-    # Ensure JSON serializable (remove non-serializable objects)
     return jsonify(_safe_json(result))
 
 
 @app.route("/api/status", methods=["GET"])
 def api_status():
-    """Check Elasticsearch and Ollama connectivity."""
+    """Check PostgreSQL and Ollama connectivity."""
     a = get_agent()
     
-    es_ok = False
+    pg_ok = False
     ollama_ok = False
     
     try:
-        es_ok = a.es_client.client.ping()
+        pg_ok = a.db_client.ping()
     except Exception:
         pass
     
@@ -71,7 +73,7 @@ def api_status():
         pass
     
     return jsonify({
-        "elasticsearch": es_ok,
+        "postgresql": pg_ok,
         "ollama": ollama_ok,
         "agent_initialized": a.initialized,
     })
@@ -95,7 +97,7 @@ def api_schema():
 def api_dashboard():
     """Return aggregated dataset statistics for the dashboard charts."""
     a = get_agent()
-    es = a.es_client
+    db = a.db_client
 
     dashboard = {
         "total_events": 0,
@@ -106,69 +108,55 @@ def api_dashboard():
     }
 
     try:
-        # 1. Total count
-        count_res = es.client.count(index=es.index)
-        dashboard["total_events"] = count_res.get("count", count_res.body.get("count", 0)) if hasattr(count_res, "body") else count_res.get("count", 0)
-    except Exception:
-        try:
-            dashboard["total_events"] = count_res.body["count"]
-        except Exception:
-            pass
-
-    # 2. Events by Action (pie / bar chart)
-    try:
-        res = es.execute_query({
-            "size": 0,
-            "aggs": {"by_action": {"terms": {"field": "Action", "size": 15}}}
-        })
-        buckets = res.get("aggregations", {}).get("by_action", {}).get("buckets", [])
-        dashboard["by_action"] = [{"name": b["key"], "value": b["doc_count"]} for b in buckets]
+        dashboard["total_events"] = db.get_table_count()
     except Exception:
         pass
 
-    # 3. Events by System
+    # Events by Action
     try:
-        res = es.execute_query({
-            "size": 0,
-            "aggs": {"by_system": {"terms": {"field": "System", "size": 20}}}
-        })
-        buckets = res.get("aggregations", {}).get("by_system", {}).get("buckets", [])
-        dashboard["by_system"] = [{"name": b["key"], "value": b["doc_count"]} for b in buckets]
+        res = db.execute_query(
+            'SELECT EVTACT as name, COUNT(*) as value FROM "/ABEX/SEFWE" '
+            'WHERE EVTACT IS NOT NULL GROUP BY EVTACT ORDER BY value DESC'
+        )
+        dashboard["by_action"] = res.get("rows", [])[:15]
     except Exception:
         pass
 
-    # 4. Events by Listener
+    # Events by System
     try:
-        res = es.execute_query({
-            "size": 0,
-            "aggs": {"by_listener": {"terms": {"field": "Listener", "size": 10}}}
-        })
-        buckets = res.get("aggregations", {}).get("by_listener", {}).get("buckets", [])
-        dashboard["by_listener"] = [{"name": str(b["key"]), "value": b["doc_count"]} for b in buckets]
+        res = db.execute_query(
+            'SELECT EVTSYS as name, COUNT(*) as value FROM "/ABEX/SEFWE" '
+            'WHERE EVTSYS IS NOT NULL GROUP BY EVTSYS ORDER BY value DESC'
+        )
+        dashboard["by_system"] = res.get("rows", [])[:15]
     except Exception:
         pass
 
-    # 5. Daily timeline (last 30 days)
+    # Events by Listener (evtobj)
     try:
-        res = es.execute_query({
-            "size": 0,
-            "query": {"range": {"@timestamp": {"gte": "now-30d", "lte": "now"}}},
-            "aggs": {
-                "timeline": {
-                    "date_histogram": {
-                        "field": "@timestamp",
-                        "calendar_interval": "day",
-                        "format": "yyyy-MM-dd"
-                    }
-                }
-            }
-        })
-        buckets = res.get("aggregations", {}).get("timeline", {}).get("buckets", [])
-        dashboard["timeline"] = [{"date": b["key_as_string"], "count": b["doc_count"]} for b in buckets]
+        res = db.execute_query(
+            'SELECT EVTOBJ as name, COUNT(*) as value FROM "/ABEX/SEFWE" '
+            'WHERE EVTOBJ IS NOT NULL GROUP BY EVTOBJ ORDER BY value DESC'
+        )
+        dashboard["by_listener"] = res.get("rows", [])[:15]
+    except Exception:
+        pass
+
+    # Daily timeline (last 30 days)
+    try:
+        res = db.execute_query(
+            'SELECT evtdat as date, COUNT(*) as count FROM "/ABEX/SEFWE" '
+            'GROUP BY evtdat ORDER BY date DESC UP TO 30 ROWS'
+        )
+        # Reverse to have chronological order for frontend
+        rows = res.get("rows", [])
+        rows.reverse()
+        dashboard["timeline"] = rows
     except Exception:
         pass
 
     return jsonify(_safe_json(dashboard))
+
 
 def _safe_json(obj):
     """Make object JSON-serializable by converting non-standard types."""
@@ -183,11 +171,11 @@ def _safe_json(obj):
 
 
 if __name__ == "__main__":
-    print("\n🚀 SecurityBridgeAI Web Server starting...")
-    print("   API: http://localhost:5000")
+    print("\nSecurityBridgeAI Web Server starting...")
+    print("   API: http://localhost:8000")
     print("   UI:  http://localhost:5173 (React dev server)\n")
     
     # Initialize agent on startup
     get_agent()
     
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=8000, debug=False)

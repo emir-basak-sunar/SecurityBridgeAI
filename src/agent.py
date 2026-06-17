@@ -1,10 +1,10 @@
 import json
-import copy
+import re
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, List
 
-from src.db_client import ElasticsearchClient
+from src.db_client import SAPApiClient
 from src.llm_client import LLMClient
 from src.schema import SchemaRegistry
 from src.app_config import PRIORITY_CONFIG_FILE, load_priority_config
@@ -14,7 +14,6 @@ logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger(__name__)
 
 # Comparison keywords — ONLY explicit week-to-week references trigger dual-query
-# Generic "trend" goes through normal query (LLM can generate date_histogram)
 COMPARISON_KEYWORDS = [
     "geçen hafta", "gecen hafta", "önceki hafta", "onceki hafta",
     "geçen haftaya göre", "önceki haftaya göre",
@@ -24,25 +23,18 @@ COMPARISON_KEYWORDS = [
 ]
 
 
-def format_es_result(result: Dict[str, Any]) -> str:
-    """Format Elasticsearch result for LLM consumption with size limit."""
-    # Add a clear data-presence header so the LLM never misses it
-    total_hits = result.get("hits", {}).get("total", {})
-    if isinstance(total_hits, dict):
-        hit_count = total_hits.get("value", 0)
-    else:
-        hit_count = total_hits or 0
-
-    aggs = result.get("aggregations", {})
-    bucket_count = 0
-    for agg_name, agg_data in aggs.items():
-        if isinstance(agg_data, dict):
-            buckets = agg_data.get("buckets", [])
-            bucket_count += len(buckets)
-
-    header = f"[DATA SUMMARY: {hit_count} total hits, {bucket_count} aggregation buckets]\n"
-
-    result_str = json.dumps(result, ensure_ascii=False, indent=2)
+def format_sql_result(result: Dict[str, Any]) -> str:
+    """Format SQL result for LLM consumption with size limit."""
+    rows = result.get("rows", [])
+    row_count = result.get("row_count", len(rows))
+    
+    header = f"[DATA SUMMARY: {row_count} rows returned]\n"
+    
+    if not rows:
+        return header + "No data found."
+    
+    # Format as a readable table string
+    result_str = json.dumps(rows, ensure_ascii=False, indent=2, default=str)
     MAX_CHARS = 4000
     if len(result_str) > MAX_CHARS:
         result_str = result_str[:MAX_CHARS] + "\n... (truncated)"
@@ -55,52 +47,108 @@ def is_comparison_question(question: str) -> bool:
     return any(keyword in q_lower for keyword in COMPARISON_KEYWORDS)
 
 
-def add_time_range(query: Dict[str, Any], gte: str, lt: str) -> Dict[str, Any]:
-    """Add a time range filter to an ES query without mutating the original."""
-    q = copy.deepcopy(query)
+def add_time_range_to_sql(sql: str, gte: str, lt: str) -> str:
+    """Add a timestamp range filter to a SQL query."""
+    time_condition = f"EVTDAT >= '{gte}' AND EVTDAT <= '{lt}'"
     
-    range_filter = {"range": {"@timestamp": {"gte": gte, "lt": lt}}}
+    sql_stripped = sql.rstrip(";").strip()
     
-    if "query" not in q:
-        q["query"] = range_filter
+    # Check if WHERE already exists
+    where_match = re.search(r'\bWHERE\b', sql_stripped, re.IGNORECASE)
+    group_match = re.search(r'\bGROUP\s+BY\b', sql_stripped, re.IGNORECASE)
+    order_match = re.search(r'\bORDER\s+BY\b', sql_stripped, re.IGNORECASE)
+    limit_match = re.search(r'\bLIMIT\b', sql_stripped, re.IGNORECASE)
+    
+    if where_match:
+        # Insert AND after WHERE clause, before GROUP BY/ORDER BY
+        insert_pos = None
+        if group_match:
+            insert_pos = group_match.start()
+        elif order_match:
+            insert_pos = order_match.start()
+        elif limit_match:
+            insert_pos = limit_match.start()
+        
+        if insert_pos:
+            sql_stripped = sql_stripped[:insert_pos] + f"AND {time_condition} " + sql_stripped[insert_pos:]
+        else:
+            sql_stripped += f" AND {time_condition}"
     else:
-        # Wrap existing query in a bool must with the range
-        existing_query = q["query"]
-        q["query"] = {
-            "bool": {
-                "must": [existing_query, range_filter]
-            }
-        }
+        # No WHERE, insert before GROUP BY/ORDER BY/LIMIT
+        insert_pos = None
+        if group_match:
+            insert_pos = group_match.start()
+        elif order_match:
+            insert_pos = order_match.start()
+        elif limit_match:
+            insert_pos = limit_match.start()
+        
+        if insert_pos:
+            sql_stripped = sql_stripped[:insert_pos] + f"WHERE {time_condition} " + sql_stripped[insert_pos:]
+        else:
+            sql_stripped += f" WHERE {time_condition}"
     
-    return q
+    return sql_stripped + ";"
+
+
+def strip_time_range_from_sql(sql: str) -> str:
+    """Remove any timestamp conditions from a SQL query, including complex subqueries."""
+    sql = re.sub(r'--[^\n]*', '', sql)
+
+    # Aggressively remove EVTDAT conditions
+    # Matches EVTDAT op (SELECT ...) or EVTDAT op 'val'
+    cleaned = re.sub(r"\bEVTDAT\s*(?:>=|<=|>|<|=)\s*(?:\([^)]+\)|'[^']*'|[\w()]+(?:\s*[-+]\s*\d+)?)", "", sql, flags=re.IGNORECASE)
+    
+    # Matches EVTDAT BETWEEN ... AND ...
+    cleaned = re.sub(r"\bEVTDAT\s+BETWEEN\s+(?:\([^)]+\)|'[^']*'|[\w()]+)\s+AND\s+(?:\([^)]+\)|'[^']*'|[\w()]+)", "", cleaned, flags=re.IGNORECASE)
+    
+    # Clean up dangling ANDs/WHEREs
+    cleaned = re.sub(r"\bWHERE\s+AND\b", "WHERE", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bAND\s+AND\b", "AND", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bWHERE\s+(GROUP|ORDER|LIMIT)\b", r"\1", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bAND\s+(GROUP|ORDER|LIMIT)\b", r"\1", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bWHERE\s*$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bAND\s*$", "", cleaned, flags=re.IGNORECASE)
+    
+    # Clean empty WHERE 
+    cleaned = re.sub(r"\bWHERE\s*;\s*$", ";", cleaned, flags=re.IGNORECASE)
+    
+    # Remove any extra spaces
+    cleaned = re.sub(r'\s+', ' ', cleaned)
+    
+    return cleaned.strip()
 
 
 class SAPLogAnalysisAgent:
     
     def __init__(self):
-        self.es_client = ElasticsearchClient()
-        self.llm_client = LLMClient()
-        self.schema_registry = SchemaRegistry(self.es_client)
+        self.db_client = SAPApiClient()
+        self.llm_clients = {
+            "ollama": LLMClient(provider="ollama"),
+            "groq": LLMClient(provider="groq")
+        }
+        self.schema_registry = SchemaRegistry(self.db_client)
         self.initialized = False
         self.priority_config = load_priority_config()
 
     def initialize(self) -> bool:
         """Initialize all components."""
         print("=" * 60)
-        print("SAP Guvenlik Log Analiz Ajani - SecurityBridgeAI (Modular v2)")
+        print("SAP Guvenlik Log Analiz Ajani - SecurityBridgeAI (SQL v3)")
         print("=" * 60)
         
-        if not self.es_client.connect():
+        if not self.db_client.connect():
             return False
-        if not self.llm_client.initialize():
-            return False
+        # Initialize both clients
+        self.llm_clients["ollama"].initialize()
+        self.llm_clients["groq"].initialize()
         self.schema_registry.load_schema()
         
         self.initialized = True
         return True
 
     def ask(self, question: str) -> str:
-        """Process natural language question using LLM-generated ElasticSearch DSL."""
+        """Process natural language question using LLM-generated SQL."""
         if not self.initialized:
             return "Agent başlatılmadı."
             
@@ -108,41 +156,30 @@ class SAPLogAnalysisAgent:
         print("-" * 40)
         
         # Step 1: Query Generation (LLM)
-        print("[1] Elasticsearch Sorgusu Oluşturuluyor (LLM)...")
+        print("[1] SQL Sorgusu Oluşturuluyor (LLM)...")
         try:
             schema_context = self.schema_registry.get_schema_context()
-            es_query_str = self.llm_client.generate_es_query(question, schema_context)
-            
-            try:
-                es_query = json.loads(es_query_str)
-            except json.JSONDecodeError as e:
-                print(f"    ⚠️ Geçersiz JSON: {es_query_str}")
-                print(f"    Hata detayı: {e}")
-                return "Sorgu oluşturulamadı (JSON hatası). LLM bozuk çıktı üretti."
-            
-            # Sanitize: remove placeholder values
-            es_query = self._sanitize_query(es_query)
-                
-            print(f"    Sorgu: {json.dumps(es_query, ensure_ascii=False)[:300]}...")
-            
+            sql_query = self.llm_client.generate_sql_query(question, schema_context)
+            sql_query = self._sanitize_query(sql_query)
+            print(f"    SQL: {sql_query[:300]}...")
         except Exception as e:
             return f"Sorgu oluşturma hatası: {e}"
 
         # Step 2: Check if this is an explicit week-comparison question
         if is_comparison_question(question):
-            return self._execute_trend_analysis(es_query, question)
+            return self._execute_trend_analysis(sql_query, question)
         else:
-            return self._execute_normal_query(es_query, question)
+            return self._execute_normal_query(sql_query, question)
 
-    def ask_structured(self, question: str) -> Dict[str, Any]:
+    def ask_structured(self, question: str, provider: str = "ollama") -> Dict[str, Any]:
         """Process question and return structured result with all intermediate data."""
         import time as _time
         start = _time.time()
         
         result = {
             "question": question,
-            "es_query": None,
-            "es_result": None,
+            "sql_query": None,
+            "sql_result": None,
             "summary": "",
             "query_type": "normal",
             "error": None,
@@ -153,18 +190,13 @@ class SAPLogAnalysisAgent:
             result["error"] = "Agent başlatılmadı."
             return result
 
-        # Step 1: Generate query
+        # Step 1: Generate SQL
+        llm = self.llm_clients.get(provider, self.llm_clients["ollama"])
         try:
             schema_context = self.schema_registry.get_schema_context()
-            es_query_str = self.llm_client.generate_es_query(question, schema_context)
-            try:
-                es_query = json.loads(es_query_str)
-            except json.JSONDecodeError:
-                result["error"] = "Sorgu oluşturulamadı (JSON hatası)."
-                result["execution_time_ms"] = int((_time.time() - start) * 1000)
-                return result
-            es_query = self._sanitize_query(es_query)
-            result["es_query"] = es_query
+            sql_query = llm.generate_sql_query(question, schema_context)
+            sql_query = self._sanitize_query(sql_query)
+            result["sql_query"] = sql_query
         except Exception as e:
             result["error"] = f"Sorgu oluşturma hatası: {e}"
             result["execution_time_ms"] = int((_time.time() - start) * 1000)
@@ -173,130 +205,128 @@ class SAPLogAnalysisAgent:
         # Step 2: Execute
         if is_comparison_question(question):
             result["query_type"] = "trend"
-            trend_result = self._execute_trend_structured(es_query, question)
+            trend_result = self._execute_trend_structured(sql_query, question, llm)
             result.update(trend_result)
         else:
             try:
-                es_result = self.es_client.execute_query(es_query)
-                result["es_result"] = es_result
-                if "error" in es_result:
-                    result["error"] = f"ES hatası: {str(es_result['error'])[:200]}"
+                sql_result = self.db_client.execute_query(sql_query)
+                result["sql_result"] = sql_result
+                if "error" in sql_result and sql_result["error"]:
+                    result["error"] = f"SQL hatası: {str(sql_result['error'])[:200]}"
                 else:
-                    formatted = format_es_result(es_result)
-                    result["summary"] = self.llm_client.summarize_result(question, formatted)
+                    formatted = format_sql_result(sql_result)
+                    result["summary"] = llm.summarize_result(question, formatted)
             except Exception as e:
                 result["error"] = str(e)
 
         result["execution_time_ms"] = int((_time.time() - start) * 1000)
         return result
 
-    def _execute_trend_structured(self, base_query: Dict[str, Any], question: str) -> Dict[str, Any]:
+    def _execute_trend_structured(self, base_sql: str, question: str, llm: LLMClient) -> Dict[str, Any]:
         """Trend analysis returning structured data instead of string."""
-        clean_query = self._strip_time_range(base_query)
-        current_week_query = add_time_range(clean_query, "now-7d", "now")
-        previous_week_query = add_time_range(clean_query, "now-14d", "now-7d")
+        now = datetime.now()
+        current_start = (now - timedelta(days=7)).strftime("%Y%m%d")
+        current_end = now.strftime("%Y%m%d")
+        previous_start = (now - timedelta(days=14)).strftime("%Y%m%d")
+        previous_end = (now - timedelta(days=7)).strftime("%Y%m%d")
+        
+        clean_sql = strip_time_range_from_sql(base_sql)
+        current_sql = add_time_range_to_sql(clean_sql, current_start, current_end)
+        previous_sql = add_time_range_to_sql(clean_sql, previous_start, previous_end)
         
         data = {"trend_data": {}}
         try:
-            current_result = self.es_client.execute_query(current_week_query)
-            previous_result = self.es_client.execute_query(previous_week_query)
+            current_result = self.db_client.execute_query(current_sql)
+            previous_result = self.db_client.execute_query(previous_sql)
             
-            if "error" in current_result or "error" in previous_result:
-                data["error"] = "Trend sorgusu hatası"
+            if ("error" in current_result and current_result["error"]) or \
+               ("error" in previous_result and previous_result["error"]):
+                err_detail = current_result.get("error", "") or previous_result.get("error", "")
+                data["error"] = f"Trend sorgusu hatasi: {str(err_detail)[:300]}"
                 return data
 
-            data["es_result"] = {"current_week": current_result, "previous_week": previous_result}
+            data["sql_result"] = {
+                "current_week": current_result,
+                "previous_week": previous_result
+            }
             data["trend_data"] = {
-                "current_week_query": current_week_query,
-                "previous_week_query": previous_week_query,
-                "current_hits": current_result.get("hits", {}).get("total", {}).get("value", 0),
-                "previous_hits": previous_result.get("hits", {}).get("total", {}).get("value", 0),
+                "current_week_query": current_sql,
+                "previous_week_query": previous_sql,
+                "current_rows": current_result.get("row_count", 0),
+                "previous_rows": previous_result.get("row_count", 0),
             }
             
-            current_fmt = format_es_result(current_result)
-            previous_fmt = format_es_result(previous_result)
-            data["summary"] = self.llm_client.compare_trend_results(question, current_fmt, previous_fmt)
+            current_fmt = format_sql_result(current_result)
+            previous_fmt = format_sql_result(previous_result)
+            data["summary"] = llm.compare_trend_results(question, current_fmt, previous_fmt)
         except Exception as e:
             data["error"] = str(e)
         
         return data
 
-    def _execute_normal_query(self, es_query: Dict[str, Any], question: str) -> str:
-        print("[2] Sorgu Çalıştırılıyor...")
+    def _execute_normal_query(self, sql_query: str, question: str) -> str:
+        print("[2] SQL Sorgusu Çalıştırılıyor...")
         try:
-            result = self.es_client.execute_query(es_query)
+            result = self.db_client.execute_query(sql_query)
         except Exception as e:
             return f"Sorgu hatası: {e}"
 
-        if "error" in result:
+        if "error" in result and result["error"]:
             error_msg = result.get("error", "Bilinmeyen hata")
-            print(f"    ⚠️ Elasticsearch hatası: {str(error_msg)[:200]}")
-            return f"Elasticsearch sorgusu başarısız oldu. Hata: {str(error_msg)[:200]}"
+            print(f"    [UYARI] SQL hatasi: {str(error_msg)[:200]}")
+            return f"SQL sorgusu başarısız oldu. Hata: {str(error_msg)[:200]}"
 
         print("[3] Sonuç Özetleniyor...")
         try:
-            formatted_result = format_es_result(result)
+            formatted_result = format_sql_result(result)
             summary = self.llm_client.summarize_result(question, formatted_result)
         except Exception as e:
             return f"Özetleme hatası: {e}"
             
         return summary
 
-    def _execute_trend_analysis(self, base_query: Dict[str, Any], question: str) -> str:
+    def _execute_trend_analysis(self, base_sql: str, question: str) -> str:
         """Execute dual-query trend analysis: this week vs previous week."""
         print("[2] Trend Analizi: İki dönem karşılaştırılıyor...")
         
-        # Strip any time range the LLM may have added (agent controls time)
-        clean_query = self._strip_time_range(base_query)
-        
-        # Calculate actual dates for logging
         now = datetime.now()
-        current_start = (now - timedelta(days=7)).strftime("%Y-%m-%d %H:%M")
-        current_end = now.strftime("%Y-%m-%d %H:%M")
-        previous_start = (now - timedelta(days=14)).strftime("%Y-%m-%d %H:%M")
-        previous_end = (now - timedelta(days=7)).strftime("%Y-%m-%d %H:%M")
+        current_start = (now - timedelta(days=7)).strftime("%Y%m%d")
+        current_end = now.strftime("%Y%m%d")
+        previous_start = (now - timedelta(days=14)).strftime("%Y%m%d")
+        previous_end = (now - timedelta(days=7)).strftime("%Y%m%d")
         
-        # Create two time-ranged queries
-        current_week_query = add_time_range(clean_query, "now-7d", "now")
-        previous_week_query = add_time_range(clean_query, "now-14d", "now-7d")
+        clean_sql = strip_time_range_from_sql(base_sql)
+        current_sql = add_time_range_to_sql(clean_sql, current_start, current_end)
+        previous_sql = add_time_range_to_sql(clean_sql, previous_start, previous_end)
         
-        print(f"    📅 Bu hafta:     {current_start} → {current_end}")
-        print(f"    📅 Önceki hafta: {previous_start} → {previous_end}")
-        print(f"    Sorgu A (bu hafta):     {json.dumps(current_week_query, ensure_ascii=False)}")
-        print(f"    Sorgu B (önceki hafta): {json.dumps(previous_week_query, ensure_ascii=False)}")
+        print(f"    Bu hafta:     {current_start} -> {current_end}")
+        print(f"    Onceki hafta: {previous_start} -> {previous_end}")
+        print(f"    SQL A: {current_sql}")
+        print(f"    SQL B: {previous_sql}")
         
-        # Execute both
         try:
             print("    [2a] Bu hafta sorgulanıyor...")
-            current_result = self.es_client.execute_query(current_week_query)
+            current_result = self.db_client.execute_query(current_sql)
             
-            if "error" in current_result:
-                error_msg = current_result.get("error", "")
-                print(f"    ⚠️ Bu hafta sorgusu hatası: {str(error_msg)[:200]}")
-                return f"Trend analizi başarısız: Bu hafta sorgusu hatası."
+            if "error" in current_result and current_result["error"]:
+                return f"Trend analizi başarısız: {str(current_result['error'])[:200]}"
             
             print("    [2b] Önceki hafta sorgulanıyor...")
-            previous_result = self.es_client.execute_query(previous_week_query)
+            previous_result = self.db_client.execute_query(previous_sql)
             
-            if "error" in previous_result:
-                error_msg = previous_result.get("error", "")
-                print(f"    ⚠️ Önceki hafta sorgusu hatası: {str(error_msg)[:200]}")
-                return f"Trend analizi başarısız: Önceki hafta sorgusu hatası."
+            if "error" in previous_result and previous_result["error"]:
+                return f"Trend analizi başarısız: {str(previous_result['error'])[:200]}"
                 
         except Exception as e:
             return f"Trend sorgusu hatası: {e}"
 
-        # Log hit counts
-        current_hits = current_result.get("hits", {}).get("total", {}).get("value", "?")
-        previous_hits = previous_result.get("hits", {}).get("total", {}).get("value", "?")
-        print(f"    📊 Bu hafta toplam hit: {current_hits}")
-        print(f"    📊 Önceki hafta toplam hit: {previous_hits}")
+        print(f"    Bu hafta satir: {current_result.get('row_count', '?')}")
+        print(f"    Onceki hafta satir: {previous_result.get('row_count', '?')}")
 
-        # Step 3: Compare with LLM
         print("[3] Trend Karşılaştırması Yapılıyor (LLM)...")
         try:
-            current_formatted = format_es_result(current_result)
-            previous_formatted = format_es_result(previous_result)
+            current_formatted = format_sql_result(current_result)
+            previous_formatted = format_sql_result(previous_result)
             
             summary = self.llm_client.compare_trend_results(
                 question, current_formatted, previous_formatted
@@ -306,87 +336,46 @@ class SAPLogAnalysisAgent:
             
         return summary
 
-    def _strip_time_range(self, query: Dict[str, Any]) -> Dict[str, Any]:
-        """Remove any @timestamp range filter from the query so agent can add its own."""
-        q = copy.deepcopy(query)
+    def _sanitize_query(self, sql: str) -> str:
+        """Remove placeholder values, comments, markdown and clean up SQL."""
+        # Try to extract SQL from markdown code blocks first
+        match = re.search(r'```(?:sql)?\s*(.*?)\s*```', sql, flags=re.IGNORECASE | re.DOTALL)
+        if match:
+            sql = match.group(1)
+        else:
+            # Try to find the SELECT statement directly to ignore chatty text
+            match = re.search(r'(SELECT\s+.*)', sql, flags=re.IGNORECASE | re.DOTALL)
+            if match:
+                sql = match.group(1)
         
-        if "query" not in q:
-            return q
-        
-        qpart = q["query"]
-        
-        # Case 1: Direct range on @timestamp
-        if "range" in qpart and "@timestamp" in qpart.get("range", {}):
-            del q["query"]
-            return q
-        
-        # Case 2: Inside bool.must or bool.filter
-        if "bool" in qpart:
-            for clause_type in ["must", "filter"]:
-                if clause_type not in qpart["bool"]:
-                    continue
-                clauses = qpart["bool"][clause_type]
-                if isinstance(clauses, list):
-                    cleaned = [c for c in clauses if not ("range" in c and "@timestamp" in c.get("range", {}))]
-                    if cleaned:
-                        qpart["bool"][clause_type] = cleaned
-                    else:
-                        del qpart["bool"][clause_type]
-            
-            # If bool is now empty, remove query entirely
-            if not qpart.get("bool"):
-                del q["query"]
-        
-        return q
+        # Strip SQL single-line comments (-- ...)
+        sql = re.sub(r'--[^\n]*', '', sql)
 
-    def _sanitize_query(self, query: Dict[str, Any]) -> Dict[str, Any]:
-        """Remove placeholder values like <terminal_adı> from query."""
-        import re
-        q_str = json.dumps(query, ensure_ascii=False)
+        # Remove placeholder patterns like <terminal_adı>, <kullanıcı>
+        if re.search(r'<[a-zA-ZçğıöşüÇĞİÖŞÜ_\s]+>', sql):
+            print("    [UYARI] Placeholder deger tespit edildi, temizleniyor...")
+            # Remove WHERE clauses containing placeholders
+            sql = re.sub(
+                r"AND\s+\w+\s*=\s*'?<[^>]+>'?\s*", "", sql, flags=re.IGNORECASE
+            )
+            sql = re.sub(
+                r"WHERE\s+\w+\s*=\s*'?<[^>]+>'?\s*AND\s*", "WHERE ", sql, flags=re.IGNORECASE
+            )
+            sql = re.sub(
+                r"WHERE\s+\w+\s*=\s*'?<[^>]+>'?\s*", "", sql, flags=re.IGNORECASE
+            )
+            print(f"    [OK] Temizlenmis SQL: {sql[:300]}")
         
-        if re.search(r'<[a-zA-ZçğıöşüÇĞİÖŞÜ_\s]+>', q_str):
-            print("    ⚠️ Placeholder değer tespit edildi, temizleniyor...")
-            cleaned = self._remove_placeholder_clauses(query)
-            print(f"    ✅ Temizlenmiş sorgu: {json.dumps(cleaned, ensure_ascii=False)[:300]}")
-            return cleaned
+        # Remove ALL semicolons (causes '%3B' URL encode errors in SAP)
+        sql = sql.replace(";", "")
         
-        return query
-
-    def _contains_placeholder(self, obj) -> bool:
-        """Check if a value contains a placeholder at any depth."""
-        import re
-        placeholder_re = re.compile(r'<[a-zA-ZçğıöşüÇĞİÖŞÜ_\s]+>')
-        if isinstance(obj, str):
-            return bool(placeholder_re.search(obj))
-        elif isinstance(obj, list):
-            return any(self._contains_placeholder(item) for item in obj)
-        elif isinstance(obj, dict):
-            return any(self._contains_placeholder(v) for v in obj.values())
-        return False
-
-    def _remove_placeholder_clauses(self, obj) -> Any:
-        """Recursively remove dict entries whose values contain placeholders at any depth."""
-        if isinstance(obj, dict):
-            cleaned = {}
-            for k, v in obj.items():
-                if self._contains_placeholder(v):
-                    continue  # Skip entire key-value pair
-                cleaned_v = self._remove_placeholder_clauses(v)
-                if cleaned_v is not None:
-                    cleaned[k] = cleaned_v
-            return cleaned
-        elif isinstance(obj, list):
-            cleaned_list = []
-            for item in obj:
-                if self._contains_placeholder(item):
-                    continue  # Skip list items with placeholders
-                cleaned_item = self._remove_placeholder_clauses(item)
-                if isinstance(cleaned_item, dict) and not cleaned_item:
-                    continue
-                if cleaned_item is not None:
-                    cleaned_list.append(cleaned_item)
-            return cleaned_list
-        return obj
+        # Remove newlines (causes '%0A' URL encode errors in SAP)
+        sql = sql.replace("\n", " ").replace("\r", " ")
+        
+        # Remove extra spaces created by newlines
+        sql = re.sub(r'\s+', ' ', sql)
+        
+        return sql.strip()
 
     def reload_priority_config(self):
         """Reloads priority config."""
