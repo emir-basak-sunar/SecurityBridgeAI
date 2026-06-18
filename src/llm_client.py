@@ -1,10 +1,65 @@
 import re
+import time
 import requests
-from langchain_ollama import OllamaLLM
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from src.app_config import OLLAMA_MODEL, OLLAMA_BASE_URL, GROQ_API_KEY, GROQ_MODEL, LLM_PROVIDER, PRIORITY_CONFIG_FILE, load_priority_config, get_priority_text
+from src.app_config import (
+    OLLAMA_MODEL, OLLAMA_BASE_URL, GROQ_API_KEY, GROQ_MODEL, LLM_PROVIDER,
+    AICORE_CLIENT_ID, AICORE_CLIENT_SECRET, AICORE_AUTH_URL,
+    AICORE_OLLAMA_DEPLOYMENT_URL, AICORE_RESOURCE_GROUP,
+    PRIORITY_CONFIG_FILE, load_priority_config, get_priority_text,
+)
 from src.prompts import QUERY_GENERATION_PROMPT, GROQ_QUERY_GENERATION_PROMPT, SUMMARIZATION_PROMPT, TREND_COMPARISON_PROMPT
+
+
+class AICoreOllamaLLM:
+    """Ollama BYOM deployment on SAP AI Core (Llama 3.1 8B etc.)."""
+
+    def __init__(self, deployment_url: str, model: str, client_id: str, client_secret: str, auth_url: str, resource_group: str = "default"):
+        self.deployment_url = deployment_url.rstrip("/")
+        self.model = model
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.auth_url = auth_url.rstrip("/")
+        self.resource_group = resource_group
+        self._token = None
+        self._token_expires = 0.0
+
+    def _get_token(self) -> str:
+        if self._token and time.time() < self._token_expires - 60:
+            return self._token
+        resp = requests.post(
+            f"{self.auth_url}/oauth/token",
+            data={"grant_type": "client_credentials", "client_id": self.client_id, "client_secret": self.client_secret},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"AI Core auth hatasi: {resp.text[:300]}")
+        data = resp.json()
+        self._token = data["access_token"]
+        self._token_expires = time.time() + int(data.get("expires_in", 3600))
+        return self._token
+
+    def invoke(self, prompt: str) -> str:
+        token = self._get_token()
+        url = f"{self.deployment_url}/v1/api/generate"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "AI-Resource-Group": self.resource_group,
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"temperature": 0.1, "num_predict": 1024},
+        }
+        resp = requests.post(url, headers=headers, json=payload, timeout=120)
+        if resp.status_code != 200:
+            raise RuntimeError(f"AI Core Ollama hatasi ({resp.status_code}): {resp.text[:400]}")
+        return resp.json().get("response", "")
+
 
 class GroqLLM:
     """Simple wrapper for Groq API using requests."""
@@ -33,7 +88,10 @@ class LLMClient:
     
     def __init__(self, provider: str = LLM_PROVIDER):
         self.provider = provider
-        self.model = OLLAMA_MODEL if provider == "ollama" else GROQ_MODEL
+        if provider == "groq":
+            self.model = GROQ_MODEL
+        else:
+            self.model = OLLAMA_MODEL
         self.base_url = OLLAMA_BASE_URL
         self.llm = None
         self.priority_config = load_priority_config()
@@ -42,19 +100,35 @@ class LLMClient:
         """Initialize the selected LLM."""
         try:
             if self.provider == "groq":
+                if not GROQ_API_KEY:
+                    raise RuntimeError("GROQ_API_KEY tanimli degil")
                 self.llm = GroqLLM(api_key=GROQ_API_KEY, model=GROQ_MODEL)
-                # Test connection implicitly if needed, or assume it works
                 print(f"[OK] Groq LLM hazir ({self.model})")
                 return True
+            elif self.provider == "aicore":
+                if not all([AICORE_CLIENT_ID, AICORE_CLIENT_SECRET, AICORE_AUTH_URL, AICORE_OLLAMA_DEPLOYMENT_URL]):
+                    raise RuntimeError("AI Core env eksik: AICORE_CLIENT_ID, AICORE_CLIENT_SECRET, AICORE_AUTH_URL, AICORE_OLLAMA_DEPLOYMENT_URL")
+                self.llm = AICoreOllamaLLM(
+                    deployment_url=AICORE_OLLAMA_DEPLOYMENT_URL,
+                    model=self.model,
+                    client_id=AICORE_CLIENT_ID,
+                    client_secret=AICORE_CLIENT_SECRET,
+                    auth_url=AICORE_AUTH_URL,
+                    resource_group=AICORE_RESOURCE_GROUP,
+                )
+                self.llm.invoke("Merhaba")
+                print(f"[OK] AI Core Ollama hazir ({self.model})")
+                return True
             else:
+                from langchain_ollama import OllamaLLM
+
                 self.llm = OllamaLLM(
                     model=self.model,
                     base_url=self.base_url,
                     temperature=0.1,
                     num_predict=1024
                 )
-                # Test connection
-                self.llm.invoke("Merhaba, hazır mısın?")
+                self.llm.invoke("Merhaba, hazir misin?")
                 print(f"[OK] Ollama LLM hazir ({self.model})")
                 return True
         except Exception as e:
@@ -140,7 +214,6 @@ class LLMClient:
         prompt = SUMMARIZATION_PROMPT.format(
             question=question,
             result=result,
-            priority_text=priority_text
         )
         response = self.llm.invoke(prompt)
         return self._clean_output(response.strip())

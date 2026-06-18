@@ -18,7 +18,9 @@ from flask_cors import CORS
 from src.agent import SAPLogAnalysisAgent
 
 app = Flask(__name__)
-CORS(app)  # Allow React dev server (localhost:5173)
+
+_cors_origins = os.getenv("CORS_ORIGINS", "*")
+CORS(app, origins=[o.strip() for o in _cors_origins.split(",") if o.strip()])
 
 # Global agent instance
 agent = None
@@ -54,27 +56,29 @@ def api_ask():
 
 @app.route("/api/status", methods=["GET"])
 def api_status():
-    """Check PostgreSQL and Ollama connectivity."""
+    """Check SAP REST API and LLM connectivity."""
+    from src.app_config import LLM_PROVIDER
+
     a = get_agent()
-    
-    pg_ok = False
-    ollama_ok = False
-    
+
+    sap_ok = False
+    llm_ok = False
+
     try:
-        pg_ok = a.db_client.ping()
+        sap_ok = a.db_client.ping()
     except Exception:
         pass
-    
+
     try:
-        import requests as req
-        r = req.get("http://localhost:11434/api/version", timeout=3)
-        ollama_ok = r.status_code == 200
+        active = a.llm_clients.get(LLM_PROVIDER)
+        llm_ok = bool(active and active.llm)
     except Exception:
         pass
-    
+
     return jsonify({
-        "postgresql": pg_ok,
-        "ollama": ollama_ok,
+        "sap_hana": sap_ok,
+        "llm": llm_ok,
+        "llm_provider": LLM_PROVIDER,
         "agent_initialized": a.initialized,
     })
 

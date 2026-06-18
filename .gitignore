@@ -1,1 +1,9 @@
 .venv/
+.env
+__pycache__/
+*.pyc
+scratch/
+frontend/node_modules/
+frontend/dist/
+*.XLSX
+Copy of EXPORT_*

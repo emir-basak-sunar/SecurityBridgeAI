@@ -1,0 +1,16 @@
+---
+applications:
+  - name: securitybridge-api
+    memory: 512M
+    disk_quota: 2G
+    instances: 1
+    buildpacks:
+      - python_buildpack
+    command: gunicorn src.web_server:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+    env:
+      LLM_PROVIDER: aicore
+      OLLAMA_MODEL: llama3.1:8b
+      FLASK_ENV: production
+      PIP_NO_CACHE_DIR: "1"
+    health-check-type: port
+    timeout: 180

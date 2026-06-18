@@ -1,31 +1,10 @@
-# Data Processing
-pandas>=2.0.0
-openpyxl>=3.1.0
-
-# PostgreSQL Client
-psycopg2-binary>=2.9.0
-
-# LangChain for LLM orchestration
-langchain>=0.1.0
-langchain-community>=0.0.20
-langchain-ollama>=0.3.0
-
-# Ollama for local LLM integration
-ollama>=0.1.0
-
-# Retry mechanism
-tenacity>=9.0.0
-
-# HTTP requests
+# CF production deps (minimal — aicore/groq providers)
 requests>=2.31.0
-
-# Utilities
-python-dateutil>=2.8.0
-tqdm>=4.66.0
-
-# Fuzzy matching
+tenacity>=9.0.0
 thefuzz>=0.22.0
-
-# Web Server
+python-dateutil>=2.8.0
 flask>=3.0.0
 flask-cors>=4.0.0
+gunicorn>=22.0.0
+
+# Local-only extras: pip install -r requirements-dev.txt

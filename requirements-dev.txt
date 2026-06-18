@@ -1,0 +1,13 @@
+-r requirements.txt
+
+# Data processing / ingest scripts
+pandas>=2.0.0
+openpyxl>=3.1.0
+psycopg2-binary>=2.9.0
+tqdm>=4.66.0
+
+# Local Ollama provider
+langchain>=0.1.0
+langchain-community>=0.0.20
+langchain-ollama>=0.3.0
+ollama>=0.1.0

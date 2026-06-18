@@ -43,7 +43,8 @@ export function Dashboard() {
         setLoading(true);
         setError(null);
         try {
-            const res = await fetch("http://localhost:8000/api/dashboard");
+            const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+            const res = await fetch(`${apiBase}/api/dashboard`);
             if (!res.ok) throw new Error(`API error: ${res.status}`);
             const json = await res.json();
             setData(json);

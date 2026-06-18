@@ -15,8 +15,9 @@ export interface AgentResponse {
 }
 
 export interface StatusResponse {
-    postgresql: boolean;
-    ollama: boolean;
+    sap_hana: boolean;
+    llm: boolean;
+    llm_provider: string;
     agent_initialized: boolean;
 }
 

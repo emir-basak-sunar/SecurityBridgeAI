@@ -8,6 +8,13 @@ interface Props {
 }
 
 export function Sidebar({ status, history, onHistoryClick }: Props) {
+    const llmLabel =
+        status.llm_provider === "aicore"
+            ? "AI Core LLM"
+            : status.llm_provider === "groq"
+              ? "Groq LLM"
+              : "Ollama LLM";
+
     return (
         <aside className="sidebar">
             <div className="sidebar-header">
@@ -20,17 +27,17 @@ export function Sidebar({ status, history, onHistoryClick }: Props) {
                 <h3 className="sidebar-section-title">Sistem Durumu</h3>
                 <div className="status-items">
                     <div className="status-item">
-                        <span className={`status-dot ${status.postgresql ? "online" : "offline"}`} />
-                        <span className="status-label">PostgreSQL</span>
-                        <span className={`status-badge ${status.postgresql ? "online" : "offline"}`}>
-                            {status.postgresql ? "Online" : "Offline"}
+                        <span className={`status-dot ${status.sap_hana ? "online" : "offline"}`} />
+                        <span className="status-label">SAP HANA</span>
+                        <span className={`status-badge ${status.sap_hana ? "online" : "offline"}`}>
+                            {status.sap_hana ? "Online" : "Offline"}
                         </span>
                     </div>
                     <div className="status-item">
-                        <span className={`status-dot ${status.ollama ? "online" : "offline"}`} />
-                        <span className="status-label">Ollama LLM</span>
-                        <span className={`status-badge ${status.ollama ? "online" : "offline"}`}>
-                            {status.ollama ? "Online" : "Offline"}
+                        <span className={`status-dot ${status.llm ? "online" : "offline"}`} />
+                        <span className="status-label">{llmLabel}</span>
+                        <span className={`status-badge ${status.llm ? "online" : "offline"}`}>
+                            {status.llm ? "Online" : "Offline"}
                         </span>
                     </div>
                     <div className="status-item">

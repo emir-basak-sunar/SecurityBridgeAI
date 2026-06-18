@@ -12,7 +12,12 @@ import type { AgentResponse, StatusResponse, QueryHistoryItem } from "./types";
 function App() {
   const [response, setResponse] = useState<AgentResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<StatusResponse>({ postgresql: false, ollama: false, agent_initialized: false });
+  const [status, setStatus] = useState<StatusResponse>({
+    sap_hana: false,
+    llm: false,
+    llm_provider: "aicore",
+    agent_initialized: false,
+  });
   const [history, setHistory] = useState<QueryHistoryItem[]>([]);
   const [activePanel, setActivePanel] = useState<"response" | "data" | "dashboard">("dashboard");
   const mainRef = useRef<HTMLDivElement>(null);
@@ -23,7 +28,7 @@ function App() {
         const s = await getStatus();
         setStatus(s);
       } catch {
-        setStatus({ postgresql: false, ollama: false, agent_initialized: false });
+        setStatus({ sap_hana: false, llm: false, llm_provider: "aicore", agent_initialized: false });
       }
     };
     checkStatus();

@@ -1,0 +1,11 @@
+---
+applications:
+  - name: securitybridge-ui
+    memory: 64M
+    disk_quota: 256M
+    instances: 1
+    buildpacks:
+      - staticfile_buildpack
+    path: frontend/dist
+    env:
+      FORCE_HTTPS: true

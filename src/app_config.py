@@ -1,22 +1,33 @@
 import os
 import json
 
-# SAP REST API Configuration
-SAP_API_URL = "http://solmandev.btctr.local:8000/sap/bc/rest/zbtc_json_api/driver"
-SAP_USER = "ARGE_USER"
-SAP_PASSWORD = "Ekonum01"
+# SAP REST API Configuration (HANA üzerinden ABAP REST servisi)
+SAP_API_URL = os.getenv(
+    "SAP_API_URL",
+    "http://solmandev.btctr.local:8000/sap/bc/rest/zbtc_json_api/driver",
+)
+SAP_USER = os.getenv("SAP_USER", "ARGE_USER")
+SAP_PASSWORD = os.getenv("SAP_PASSWORD", "Ekonum01")
 
 # Table name
 SAP_TABLE = '"/ABEX/SEFWE"'
 
 
 # LLM Configuration
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama") # 'ollama' veya 'groq'
+# ollama = local Ollama | aicore = Ollama BYOM on SAP AI Core | groq = Groq cloud
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
+# SAP AI Core BYOM Ollama (Llama 3.1 8B deployment URL from AI Core)
+AICORE_CLIENT_ID = os.getenv("AICORE_CLIENT_ID", "")
+AICORE_CLIENT_SECRET = os.getenv("AICORE_CLIENT_SECRET", "")
+AICORE_AUTH_URL = os.getenv("AICORE_AUTH_URL", "")
+AICORE_OLLAMA_DEPLOYMENT_URL = os.getenv("AICORE_OLLAMA_DEPLOYMENT_URL", "")
+AICORE_RESOURCE_GROUP = os.getenv("AICORE_RESOURCE_GROUP", "default")
+
 # Groq Configuration
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "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")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3-32b")
 
 # Priority Configuration

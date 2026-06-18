@@ -125,7 +125,8 @@ class SAPLogAnalysisAgent:
         self.db_client = SAPApiClient()
         self.llm_clients = {
             "ollama": LLMClient(provider="ollama"),
-            "groq": LLMClient(provider="groq")
+            "aicore": LLMClient(provider="aicore"),
+            "groq": LLMClient(provider="groq"),
         }
         self.schema_registry = SchemaRegistry(self.db_client)
         self.initialized = False
@@ -133,19 +134,34 @@ class SAPLogAnalysisAgent:
 
     def initialize(self) -> bool:
         """Initialize all components."""
+        from src.app_config import LLM_PROVIDER
+
         print("=" * 60)
         print("SAP Guvenlik Log Analiz Ajani - SecurityBridgeAI (SQL v3)")
         print("=" * 60)
-        
-        if not self.db_client.connect():
-            return False
-        # Initialize both clients
-        self.llm_clients["ollama"].initialize()
-        self.llm_clients["groq"].initialize()
-        self.schema_registry.load_schema()
-        
-        self.initialized = True
-        return True
+
+        sap_ok = self.db_client.connect()
+        if not sap_ok:
+            print("[UYARI] SAP REST API erisilemiyor (Cloud Connector / VPN gerekebilir)")
+
+        for key in ("ollama", "aicore", "groq"):
+            try:
+                self.llm_clients[key].initialize()
+            except Exception as e:
+                print(f"[UYARI] {key} LLM baslatilamadi: {e}")
+
+        if sap_ok:
+            try:
+                self.schema_registry.load_schema()
+            except Exception as e:
+                print(f"[UYARI] Sema yuklenemedi: {e}")
+
+        active_llm = self.llm_clients.get(LLM_PROVIDER)
+        llm_ok = bool(active_llm and active_llm.llm)
+        self.initialized = sap_ok or llm_ok
+        if self.initialized:
+            print(f"[OK] Agent hazir (SAP: {'evet' if sap_ok else 'hayir'}, LLM: {LLM_PROVIDER})")
+        return self.initialized
 
     def ask(self, question: str) -> str:
         """Process natural language question using LLM-generated SQL."""

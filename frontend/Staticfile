@@ -1,0 +1,3 @@
+root: .
+pushstate: enabled
+https_only: true

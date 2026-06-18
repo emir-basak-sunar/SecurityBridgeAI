@@ -14,7 +14,7 @@ const EXAMPLE_QUERIES = [
 
 export function QueryInput({ onSubmit, loading }: Props) {
     const [value, setValue] = useState("");
-    const [provider, setProvider] = useState("ollama");
+    const [provider, setProvider] = useState("aicore");
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
     useEffect(() => {
@@ -57,7 +57,8 @@ export function QueryInput({ onSubmit, loading }: Props) {
                     onChange={(e) => setProvider(e.target.value)}
                     disabled={loading}
                 >
-                    <option value="ollama">Ollama (Llama 3.1 8B)</option>
+                    <option value="aicore">AI Core Ollama (Llama 3.1 8B)</option>
+                    <option value="ollama">Local Ollama</option>
                     <option value="groq">Groq (Qwen 32B)</option>
                 </select>
                 <textarea
