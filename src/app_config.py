@@ -1,5 +1,15 @@
 import os
 import json
+from pathlib import Path
+
+# Proje kökündeki .env dosyasını otomatik yükle (python src/web_server.py için)
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+if _env_path.exists():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_env_path)
+    except ImportError:
+        pass
 
 # SAP REST API Configuration (HANA üzerinden ABAP REST servisi)
 SAP_API_URL = os.getenv(
@@ -15,7 +25,7 @@ SAP_TABLE = '"/ABEX/SEFWE"'
 
 # LLM Configuration
 # ollama = local Ollama | aicore = Ollama BYOM on SAP AI Core | groq = Groq cloud
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "aicore")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
@@ -24,7 +34,7 @@ AICORE_CLIENT_ID = os.getenv("AICORE_CLIENT_ID", "")
 AICORE_CLIENT_SECRET = os.getenv("AICORE_CLIENT_SECRET", "")
 AICORE_AUTH_URL = os.getenv("AICORE_AUTH_URL", "")
 AICORE_OLLAMA_DEPLOYMENT_URL = os.getenv("AICORE_OLLAMA_DEPLOYMENT_URL", "")
-AICORE_RESOURCE_GROUP = os.getenv("AICORE_RESOURCE_GROUP", "default")
+AICORE_RESOURCE_GROUP = os.getenv("AICORE_RESOURCE_GROUP", "oss-llm")
 
 # Groq Configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")

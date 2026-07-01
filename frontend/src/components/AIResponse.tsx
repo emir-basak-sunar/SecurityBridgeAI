@@ -101,6 +101,29 @@ export function AIResponse({ response, loading }: Props) {
         return `<p>${html}</p>`;
     };
 
+    const formatTiming = (timing?: AgentResponse["timing"]) => {
+        if (!timing) return null;
+        const rows: { label: string; ms?: number }[] = [
+            { label: "Şema", ms: timing.schema_ms },
+            { label: "LLM → SQL", ms: timing.sql_generation_ms },
+            { label: "SAP sorgu", ms: timing.sap_query_ms },
+            { label: "LLM → özet", ms: timing.summary_ms },
+            { label: "SAP (bu hafta)", ms: timing.sap_query_current_ms },
+            { label: "SAP (geçen hafta)", ms: timing.sap_query_previous_ms },
+            { label: "LLM → trend", ms: timing.trend_summary_ms },
+        ].filter((r) => r.ms != null);
+        if (rows.length === 0) return null;
+        return (
+            <div className="timing-breakdown">
+                {rows.map((r) => (
+                    <span key={r.label} className="timing-item">
+                        {r.label}: <strong>{r.ms}ms</strong>
+                    </span>
+                ))}
+            </div>
+        );
+    };
+
     return (
         <div className="ai-response-card">
             <div className="card-header">
@@ -120,10 +143,13 @@ export function AIResponse({ response, loading }: Props) {
                         <span>{response.error}</span>
                     </div>
                 ) : (
-                    <div
-                        className="response-content"
-                        dangerouslySetInnerHTML={{ __html: formatSummary(response.summary) }}
-                    />
+                    <>
+                        {formatTiming(response.timing)}
+                        <div
+                            className="response-content"
+                            dangerouslySetInnerHTML={{ __html: formatSummary(response.summary) }}
+                        />
+                    </>
                 )}
             </div>
         </div>

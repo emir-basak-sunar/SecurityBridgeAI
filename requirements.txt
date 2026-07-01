@@ -1,4 +1,5 @@
 # CF production deps (minimal — aicore/groq providers)
+python-dotenv>=1.0.0
 requests>=2.31.0
 tenacity>=9.0.0
 thefuzz>=0.22.0

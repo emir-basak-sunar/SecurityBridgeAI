@@ -190,8 +190,9 @@ class SAPLogAnalysisAgent:
     def ask_structured(self, question: str, provider: str = "ollama") -> Dict[str, Any]:
         """Process question and return structured result with all intermediate data."""
         import time as _time
-        start = _time.time()
-        
+        start = _time.perf_counter()
+        timing: Dict[str, int] = {}
+
         result = {
             "question": question,
             "sql_query": None,
@@ -200,46 +201,92 @@ class SAPLogAnalysisAgent:
             "query_type": "normal",
             "error": None,
             "execution_time_ms": 0,
+            "timing": timing,
         }
 
         if not self.initialized:
             result["error"] = "Agent başlatılmadı."
             return result
 
-        # Step 1: Generate SQL
         llm = self.llm_clients.get(provider, self.llm_clients["ollama"])
+
+        # Step 1a: Schema context
+        t0 = _time.perf_counter()
         try:
             schema_context = self.schema_registry.get_schema_context()
+            timing["schema_ms"] = int((_time.perf_counter() - t0) * 1000)
+        except Exception as e:
+            timing["schema_ms"] = int((_time.perf_counter() - t0) * 1000)
+            result["error"] = f"Şema hatası: {e}"
+            result["execution_time_ms"] = int((_time.perf_counter() - start) * 1000)
+            timing["total_ms"] = result["execution_time_ms"]
+            self._log_timing(timing, provider)
+            return result
+
+        # Step 1b: LLM → SQL
+        t0 = _time.perf_counter()
+        try:
             sql_query = llm.generate_sql_query(question, schema_context)
             sql_query = self._sanitize_query(sql_query)
             result["sql_query"] = sql_query
+            timing["sql_generation_ms"] = int((_time.perf_counter() - t0) * 1000)
         except Exception as e:
+            timing["sql_generation_ms"] = int((_time.perf_counter() - t0) * 1000)
             result["error"] = f"Sorgu oluşturma hatası: {e}"
-            result["execution_time_ms"] = int((_time.time() - start) * 1000)
+            result["execution_time_ms"] = int((_time.perf_counter() - start) * 1000)
+            timing["total_ms"] = result["execution_time_ms"]
+            self._log_timing(timing, provider)
             return result
 
-        # Step 2: Execute
+        # Step 2: Execute + summarize
         if is_comparison_question(question):
             result["query_type"] = "trend"
-            trend_result = self._execute_trend_structured(sql_query, question, llm)
+            trend_result = self._execute_trend_structured(sql_query, question, llm, timing)
             result.update(trend_result)
         else:
+            t0 = _time.perf_counter()
             try:
                 sql_result = self.db_client.execute_query(sql_query)
+                timing["sap_query_ms"] = int((_time.perf_counter() - t0) * 1000)
                 result["sql_result"] = sql_result
                 if "error" in sql_result and sql_result["error"]:
                     result["error"] = f"SQL hatası: {str(sql_result['error'])[:200]}"
                 else:
+                    t1 = _time.perf_counter()
                     formatted = format_sql_result(sql_result)
                     result["summary"] = llm.summarize_result(question, formatted)
+                    timing["summary_ms"] = int((_time.perf_counter() - t1) * 1000)
             except Exception as e:
+                if "sap_query_ms" not in timing:
+                    timing["sap_query_ms"] = int((_time.perf_counter() - t0) * 1000)
                 result["error"] = str(e)
 
-        result["execution_time_ms"] = int((_time.time() - start) * 1000)
+        result["execution_time_ms"] = int((_time.perf_counter() - start) * 1000)
+        timing["total_ms"] = result["execution_time_ms"]
+        self._log_timing(timing, provider)
         return result
 
-    def _execute_trend_structured(self, base_sql: str, question: str, llm: LLMClient) -> Dict[str, Any]:
+    @staticmethod
+    def _log_timing(timing: Dict[str, int], provider: str) -> None:
+        parts = [f"toplam={timing.get('total_ms', 0)}ms", f"provider={provider}"]
+        labels = {
+            "schema_ms": "sema",
+            "sql_generation_ms": "llm_sql",
+            "sap_query_ms": "sap",
+            "summary_ms": "llm_ozet",
+            "sap_query_current_ms": "sap_hafta1",
+            "sap_query_previous_ms": "sap_hafta2",
+            "trend_summary_ms": "llm_trend",
+        }
+        for key, label in labels.items():
+            if key in timing:
+                parts.append(f"{label}={timing[key]}ms")
+        print("[TIMING] " + " | ".join(parts))
+
+    def _execute_trend_structured(self, base_sql: str, question: str, llm: LLMClient, timing: Dict[str, int]) -> Dict[str, Any]:
         """Trend analysis returning structured data instead of string."""
+        import time as _time
+
         now = datetime.now()
         current_start = (now - timedelta(days=7)).strftime("%Y%m%d")
         current_end = now.strftime("%Y%m%d")
@@ -252,8 +299,13 @@ class SAPLogAnalysisAgent:
         
         data = {"trend_data": {}}
         try:
+            t0 = _time.perf_counter()
             current_result = self.db_client.execute_query(current_sql)
+            timing["sap_query_current_ms"] = int((_time.perf_counter() - t0) * 1000)
+
+            t0 = _time.perf_counter()
             previous_result = self.db_client.execute_query(previous_sql)
+            timing["sap_query_previous_ms"] = int((_time.perf_counter() - t0) * 1000)
             
             if ("error" in current_result and current_result["error"]) or \
                ("error" in previous_result and previous_result["error"]):
@@ -274,7 +326,9 @@ class SAPLogAnalysisAgent:
             
             current_fmt = format_sql_result(current_result)
             previous_fmt = format_sql_result(previous_result)
+            t0 = _time.perf_counter()
             data["summary"] = llm.compare_trend_results(question, current_fmt, previous_fmt)
+            timing["trend_summary_ms"] = int((_time.perf_counter() - t0) * 1000)
         except Exception as e:
             data["error"] = str(e)
         
